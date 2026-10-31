@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+.DS_Store
+
+# Binary assets are not tracked; CI regenerates/fetches them (docs/DECISIONS.md)
+gradle/wrapper/gradle-wrapper.jar
+core/designsystem/src/main/res/font/*.ttf
