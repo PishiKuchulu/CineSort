@@ -1,0 +1,37 @@
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+complexity:
+  LongMethod:
+    threshold: 120
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 10
+    ignoreDefault: true
+  TooManyFunctions:
+    active: false
+  CyclomaticComplexMethod:
+    threshold: 18
+  LargeClass:
+    threshold: 800
+
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    maxLineLength: 140
+  WildcardImport:
+    active: true
+  ForbiddenComment:
+    active: true
+    values: ["TODO:", "FIXME:", "STOPSHIP:"]
+  UnusedPrivateMember:
+    active: true
+
+potential-bugs:
+  MaxChainedCallsOnSameLine:
+    active: false
+
+formatting:
+  active: false

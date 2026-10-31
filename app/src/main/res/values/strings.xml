@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CineSort</string>
+
+    <!-- Tabs -->
+    <string name="tab_home">Home</string>
+    <string name="tab_sources">Sources</string>
+    <string name="tab_history">History</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Common -->
+    <string name="common_cancel">Cancel</string>
+    <string name="common_ok">OK</string>
+    <string name="common_remove">Remove</string>
+    <string name="common_next">Next</string>
+    <string name="common_back">Back</string>
+    <string name="common_skip">Skip</string>
+    <string name="common_change">Change</string>
+    <string name="common_not_set">Not set</string>
+    <string name="common_more_options">More options</string>
+
+    <!-- Home -->
+    <string name="home_title">CineSort</string>
+    <string name="home_subtitle">Organize your movies and series into a clean library.</string>
+    <string name="home_scan_button">Scan &amp; organize</string>
+    <string name="home_scan_disabled_no_destination">Choose a destination folder first to start scanning.</string>
+    <string name="home_scan_disabled_no_sources">Add at least one source folder to start scanning.</string>
+    <string name="home_stat_sources">Source folders</string>
+    <string name="home_stat_destination_free">Destination free space</string>
+    <string name="home_free_unknown">Unknown</string>
+    <string name="home_naming_title">Naming options</string>
+    <string name="home_genres">Genres</string>
+    <string name="home_rating">Rating</string>
+    <string name="home_last_run_title">Last run</string>
+    <string name="home_last_run_none">No organize run yet. Your recent runs will appear here.</string>
+    <string name="home_last_run_summary">%1$d files organized</string>
+    <string name="home_last_run_undone">Undone</string>
+    <string name="home_undo">Undo</string>
+    <string name="home_undo_done">Last run was undone: %1$d files moved back.</string>
+    <string name="home_undo_failed">Undo finished with problems. Check History for details.</string>
+    <string name="home_warnings_title">Needs attention</string>
+    <string name="home_warning_no_destination">No destination folder is chosen yet.</string>
+    <string name="home_warning_no_sources">No source folders yet. Add one from the Sources tab.</string>
+    <string name="home_warning_source_needs_access">A source folder needs access again. Open Sources to re-grant it.</string>
+    <string name="home_warning_destination_needs_access">The destination folder needs access again. Open Sources to re-grant it.</string>
+    <string name="home_warning_no_api_key">No API key is set, so genres and ratings stay off. You can add keys in Settings.</string>
+
+    <!-- Sources -->
+    <string name="sources_title">Source folders</string>
+    <string name="sources_destination_title">Destination</string>
+    <string name="sources_free_space">Free space</string>
+    <string name="sources_status_ok">OK</string>
+    <string name="sources_status_needs_access">Needs access</string>
+    <string name="sources_add_source">Add source folder</string>
+    <string name="sources_include_subfolders">Include subfolders</string>
+    <string name="sources_depth">Max depth: %1$d</string>
+    <string name="sources_remove_confirm_title">Remove source folder?</string>
+    <string name="sources_remove_confirm_message">This source folder will no longer be scanned. Files in it are not deleted.</string>
+    <string name="sources_empty_title">No source folders</string>
+    <string name="sources_empty_message">Add the folders that hold your downloaded movies and episodes.</string>
+    <string name="sources_no_destination_title">No destination yet</string>
+    <string name="sources_no_destination_message">Choose the folder that will hold your organized library.</string>
+    <string name="sources_pick_destination">Choose destination</string>
+    <string name="sources_roots_result">Library folders — created: %1$s · found: %2$s</string>
+    <string name="sources_roots_none">Library folders are ready.</string>
+    <string name="sources_picker_unavailable">The folder picker is not available on this device.</string>
+
+    <!-- History -->
+    <string name="history_title">History</string>
+    <string name="history_empty_title">No runs yet</string>
+    <string name="history_empty_message">Finished organize runs will be listed here, and eligible runs can be undone.</string>
+
+    <!-- Flow placeholder screens (replaced by the flow implementation) -->
+    <string name="scan_title">Scan</string>
+    <string name="scan_message">Scanning starts from the Home screen once sources and a destination are ready.</string>
+    <string name="preview_title">Preview</string>
+    <string name="preview_message">The preview appears after a scan completes.</string>
+    <string name="run_title">Organizing</string>
+    <string name="run_message">Run progress appears here while files are being organized.</string>
+    <string name="report_title">Report</string>
+    <string name="report_message">The run report appears here when organizing finishes.</string>
+    <string name="flow_go_home">Go to Home</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Welcome to CineSort</string>
+    <string name="onboarding_welcome_message">CineSort scans folders with messy release names and moves each file — without renaming it — into a clean Movie and Tv series library.</string>
+    <string name="onboarding_destination_title">Choose a destination</string>
+    <string name="onboarding_destination_message">Pick the folder for your library. CineSort creates the Movie and Tv series folders inside it right away.</string>
+    <string name="onboarding_pick_destination">Choose destination folder</string>
+    <string name="onboarding_destination_chosen">Destination: %1$s</string>
+    <string name="onboarding_sources_title">Add source folders</string>
+    <string name="onboarding_sources_message">Pick the folders where your downloads land. You can add more later from the Sources tab.</string>
+    <string name="onboarding_add_source">Add a source folder</string>
+    <string name="onboarding_sources_count">%1$d source folder(s) added</string>
+    <string name="onboarding_keys_title">Metadata keys (optional)</string>
+    <string name="onboarding_keys_message">Add your own TMDB or OMDb keys to decorate movie folders with genres and a rating. Everything works without keys too.</string>
+    <string name="onboarding_done_title">All set</string>
+    <string name="onboarding_done_message">You can now scan your sources and organize your library from the Home screen.</string>
+    <string name="onboarding_finish">Start using CineSort</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_general">General</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_fa">Persian</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_dynamic_color">Dynamic color</string>
+    <string name="settings_persian_digits">Persian digits</string>
+    <string name="settings_jalali_dates">Jalali dates</string>
+    <string name="settings_folders">Folders</string>
+    <string name="settings_folders_destination">Destination folder</string>
+    <string name="settings_folders_sources">Source folders</string>
+    <string name="settings_folders_manage">Manage in the Sources tab</string>
+    <string name="settings_naming">Naming</string>
+    <string name="settings_movie_add_year">Movie folders: add year</string>
+    <string name="settings_movie_add_genres">Movie folders: add genres</string>
+    <string name="settings_movie_add_rating">Movie folders: add rating</string>
+    <string name="settings_series_add_year">Series folders: add year</string>
+    <string name="settings_series_add_genres">Series folders: add genres</string>
+    <string name="settings_series_add_rating">Series folders: add rating</string>
+    <string name="settings_max_genres">Max genres: %1$d</string>
+    <string name="settings_max_genres_label">Max genres</string>
+    <string name="settings_max_depth_label">Default max scan depth</string>
+    <string name="settings_title_casing">Title casing</string>
+    <string name="settings_title_casing_smart">Smart casing</string>
+    <string name="settings_title_casing_as_filename">As in file name</string>
+    <string name="settings_fill_missing_year">Fill missing year from metadata</string>
+    <string name="settings_metadata">Metadata</string>
+    <string name="settings_tmdb_key">TMDB API key</string>
+    <string name="settings_omdb_key">OMDb API key</string>
+    <string name="settings_test_key">Test key</string>
+    <string name="settings_get_key">Get a key</string>
+    <string name="settings_clear_key">Clear</string>
+    <string name="settings_show_key">Show key</string>
+    <string name="settings_hide_key">Hide key</string>
+    <string name="settings_key_test_success">Key works: %1$s</string>
+    <string name="settings_key_test_failed">Key test failed: %1$s</string>
+    <string name="settings_key_empty">Enter a key first.</string>
+    <string name="settings_rating_source">Rating source</string>
+    <string name="settings_rating_source_any">Any available (IMDb preferred)</string>
+    <string name="settings_rating_source_imdb_only">IMDb only</string>
+    <string name="settings_metadata_unavailable">If metadata is unavailable</string>
+    <string name="settings_metadata_unavailable_continue">Continue without decoration</string>
+    <string name="settings_metadata_unavailable_hold">Hold affected items</string>
+    <string name="settings_genre_normalization">Normalize genre names</string>
+    <string name="settings_clear_cache">Clear metadata cache</string>
+    <string name="settings_cache_cleared">Metadata cache cleared.</string>
+    <string name="settings_safety">Safety &amp; behavior</string>
+    <string name="settings_skip_preview">Skip preview</string>
+    <string name="settings_min_file_age">Minimum file age: %1$d seconds</string>
+    <string name="settings_ignore_samples">Ignore sample files</string>
+    <string name="settings_move_companions">Move subtitle companions with the video</string>
+    <string name="settings_conflict_default">Default conflict handling</string>
+    <string name="settings_conflict_ask">Ask in preview</string>
+    <string name="settings_conflict_skip">Skip</string>
+    <string name="settings_conflict_keep_both">Keep both</string>
+    <string name="settings_remove_empty">Remove empty source folders after a run</string>
+    <string name="settings_remove_empty_junk">Treat leftover junk files as empty</string>
+    <string name="settings_advanced">Advanced</string>
+    <string name="settings_video_extensions">Video extensions (comma separated)</string>
+    <string name="settings_extra_noise">Extra noise words (comma separated)</string>
+    <string name="settings_max_depth">Default max scan depth: %1$d</string>
+    <string name="settings_saved_corrections">Saved corrections</string>
+    <string name="settings_saved_corrections_empty">No saved corrections yet.</string>
+    <string name="settings_correction_item">%1$s → %2$s</string>
+    <string name="settings_export_diagnostics">Export diagnostics</string>
+    <string name="settings_diagnostics_chooser">Share diagnostics</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_version">Version %1$s</string>
+    <string name="settings_about_developer">Developed by %1$s</string>
+    <string name="settings_licenses">Open-source licenses</string>
+    <string name="settings_licenses_body">CineSort is built with open-source software: Kotlin and the Android Jetpack libraries (Apache License 2.0), Jetpack Compose and Material 3 (Apache License 2.0), Hilt (Apache License 2.0), Room (Apache License 2.0), WorkManager (Apache License 2.0), Coil (Apache License 2.0), Retrofit and OkHttp (Apache License 2.0), kotlinx.serialization (Apache License 2.0), Timber (Apache License 2.0), and the Vazirmatn font (SIL Open Font License 1.1).</string>
+    <string name="settings_diagnostics_header">CineSort diagnostics (API keys are never included)</string>
+
+    <!-- Common (flow) -->
+    <string name="common_apply">Apply</string>
+    <string name="common_close">Close</string>
+
+    <!-- Scan -->
+    <string name="scan_stage_scanning">Scanning</string>
+    <string name="scan_stage_parsing">Parsing</string>
+    <string name="scan_stage_metadata">Matching metadata</string>
+    <string name="scan_stage_planning">Planning</string>
+    <string name="scan_entries">%1$d entries scanned</string>
+    <string name="scan_videos">%1$d videos found</string>
+    <string name="scan_start">Start scan</string>
+    <string name="scan_view_preview">View preview</string>
+    <string name="scan_error_title">Scan failed</string>
+    <string name="scan_error_no_setup">Choose a destination and add at least one source folder first.</string>
+    <string name="scan_running_message">Scanning your source folders…</string>
+    <string name="scan_planned_message">%1$d files are ready to review in the preview.</string>
+
+    <!-- Preview -->
+    <string name="preview_label_movies">Movies</string>
+    <string name="preview_label_episodes">Episodes</string>
+    <string name="preview_label_needs_review">Needs review</string>
+    <string name="preview_label_conflicts">Conflicts</string>
+    <string name="preview_label_total_size">Total size</string>
+    <string name="preview_cross_volume">Cross-volume copy needed: %1$s will be copied, which is slower.</string>
+    <string name="preview_search_hint">Search file name or title</string>
+    <string name="preview_filter_all">All</string>
+    <string name="preview_filter_movies">Movies</string>
+    <string name="preview_filter_series">Series</string>
+    <string name="preview_filter_needs_review">Needs review</string>
+    <string name="preview_filter_conflicts">Conflicts</string>
+    <string name="preview_filter_skipped">Skipped</string>
+    <string name="preview_naming_genres">Genres</string>
+    <string name="preview_naming_rating">Rating</string>
+    <string name="preview_naming_max_genres">Max genres</string>
+    <string name="preview_group_unplanned">No target yet</string>
+    <string name="preview_group_files">%1$d files</string>
+    <string name="preview_from_folder">From folder</string>
+    <string name="preview_confidence_high">High confidence</string>
+    <string name="preview_confidence_medium">Medium confidence</string>
+    <string name="preview_confidence_low">Low confidence</string>
+    <string name="preview_type_movie">Movie</string>
+    <string name="preview_type_series">Series</string>
+    <string name="preview_companions">Subtitles</string>
+    <string name="preview_warnings">%1$d warning(s)</string>
+    <string name="preview_status_conflict">Conflict</string>
+    <string name="preview_status_needs_review">Needs review</string>
+    <string name="preview_status_skipped">Skipped</string>
+    <string name="preview_status_already">Already organized</string>
+    <string name="preview_status_recent">Still downloading?</string>
+    <string name="preview_bulk_select_ready">Select all ready</string>
+    <string name="preview_bulk_deselect_review">Deselect needs review</string>
+    <string name="preview_bulk_clear">Clear selection</string>
+    <string name="preview_selected_summary">%1$d selected · %2$s</string>
+    <string name="preview_organize">Organize %1$d files</string>
+    <string name="preview_confirm_title">Start organizing?</string>
+    <string name="preview_confirm_message">%1$d files (%2$s) will be moved into the destination. File names are never changed.</string>
+    <string name="preview_confirm_cross">%1$s of that needs a cross-volume copy.</string>
+    <string name="preview_empty_title">Nothing to organize</string>
+    <string name="preview_empty_message">The scan found no video files to organize.</string>
+    <string name="preview_no_results_title">No matches</string>
+    <string name="preview_no_results_message">No files match the current filter and search.</string>
+    <string name="preview_error_title">Something went wrong</string>
+    <string name="preview_metadata_held">Metadata unavailable — held</string>
+    <string name="preview_select_group">Select group</string>
+    <string name="preview_edit">Edit</string>
+
+    <!-- Edit sheet -->
+    <string name="edit_title">Edit file</string>
+    <string name="edit_why">Why this name?</string>
+    <string name="edit_segment_title">Title</string>
+    <string name="edit_segment_anchor">Anchor (year / episode)</string>
+    <string name="edit_segment_tail">Ignored tail</string>
+    <string name="edit_type">Type</string>
+    <string name="edit_field_title">Title</string>
+    <string name="edit_field_year">Year (optional)</string>
+    <string name="edit_field_season">Season</string>
+    <string name="edit_field_episodes">Episodes (comma separated)</string>
+    <string name="edit_apply_series">Apply to all files of this series/group</string>
+    <string name="edit_remember">Remember this correction</string>
+    <string name="edit_search_metadata">Search metadata</string>
+    <string name="edit_no_candidates">No candidates found.</string>
+    <string name="edit_no_keys">Add a TMDB or OMDb key in Settings to search metadata.</string>
+    <string name="edit_conflict_title">A file with this name already exists</string>
+    <string name="edit_conflict_target">Target: %1$s</string>
+    <string name="edit_conflict_existing">Existing file: %1$s · %2$s</string>
+    <string name="edit_conflict_probably_same">Probably the same file (same size)</string>
+    <string name="edit_conflict_skip">Skip this file</string>
+    <string name="edit_conflict_keep_both">Keep both (add a number)</string>
+    <string name="edit_conflict_apply_all">Apply to all conflicts</string>
+    <string name="edit_rule_episode_marker">The episode marker (like S02E01) ends the title; everything after it is ignored.</string>
+    <string name="edit_rule_year">The last year before the quality tags is the release year and ends the title.</string>
+    <string name="edit_rule_resolution">No year was found, so the first resolution tag (like 1080p) ends the title.</string>
+    <string name="edit_rule_noise_run">No year or resolution was found, so the title ends where the quality tags begin.</string>
+    <string name="edit_rule_folder">The title and season come from the folder this file sits in.</string>
+    <string name="edit_rule_unrecognized">This name could not be recognized. Edit the title and type to organize it.</string>
+    <string name="edit_unrecognized_reason">Reason: %1$s</string>
+
+    <!-- Run -->
+    <string name="run_counts">%1$d of %2$d files done</string>
+    <string name="run_preparing">Preparing…</string>
+    <string name="run_cancel_confirm_title">Cancel organizing?</string>
+    <string name="run_cancel_confirm_message">Files already moved stay in the destination. The rest stay where they are.</string>
+    <string name="run_failed_title">Organizing did not finish</string>
+    <string name="run_failed_message">The run stopped before finishing. You can go back and try again.</string>
+    <string name="run_cancelled_title">Organizing was cancelled</string>
+    <string name="run_back_preview">Back to preview</string>
+    <string name="run_back_home">Back to Home</string>
+    <string name="run_no_run_title">No active run</string>
+    <string name="run_no_run_message">Start a run from the preview screen.</string>
+
+    <!-- Report -->
+    <string name="report_summary">%1$d of %2$d files organized</string>
+    <string name="report_label_done">Organized</string>
+    <string name="report_label_failed">Failed</string>
+    <string name="report_label_skipped">Skipped</string>
+    <string name="report_failures_title">Failures</string>
+    <string name="report_retry_failed">Retry failed</string>
+    <string name="report_undo">Undo this run</string>
+    <string name="report_open_destination">Open destination</string>
+    <string name="report_share">Share diagnostics</string>
+    <string name="report_diagnostics_header">CineSort run report (redacted: no API keys, no full paths)</string>
+    <string name="report_undo_done">Run undone: %1$d files moved back.</string>
+    <string name="report_undo_problems">Undo finished: %1$d moved back, %2$d problem(s).</string>
+    <string name="report_no_run_title">Run not found</string>
+    <string name="report_no_run_message">This run is no longer in the journal.</string>
+    <string name="report_open_failed">Could not open the destination folder.</string>
+    <string name="report_finished">Finished</string>
+    <string name="report_running">Running</string>
+
+    <!-- History (flow) -->
+    <string name="history_status_finished">Finished</string>
+    <string name="history_status_running">Running</string>
+    <string name="history_status_undone">Undone</string>
+    <string name="history_items">%1$d files</string>
+    <string name="history_done">%1$d organized</string>
+    <string name="history_failed">%1$d failed</string>
+    <string name="history_undo">Undo</string>
+    <string name="history_undo_done">Run undone: %1$d files moved back.</string>
+    <string name="history_undo_problems">Undo finished with %1$d problem(s).</string>
+    <string name="history_open_report">Open report</string>
+</resources>
