@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Folder body (projector amber) -->
+    <path
+        android:fillColor="#F6B93B"
+        android:pathData="M18,44 L46,44 L54,54 L90,54 L90,86 Q90,90 86,90 L22,90 Q18,90 18,86 Z" />
+    <path
+        android:fillColor="#F6B93B"
+        android:pathData="M18,38 Q18,34 22,34 L44,34 Q47,34 49,36 L54,42 L22,42 Q18,42 18,38 Z" />
+    <!-- Clapper board -->
+    <path
+        android:fillColor="#E8ECF4"
+        android:pathData="M22,20 L86,20 L86,26 L22,26 Z" />
+    <path
+        android:fillColor="#E8ECF4"
+        android:pathData="M30,20 L38,20 L34,26 L26,26 Z M48,20 L56,20 L52,26 L44,26 Z M66,20 L74,20 L70,26 L62,26 Z" />
+</vector>

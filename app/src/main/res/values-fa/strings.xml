@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CineSort</string>
+
+    <!-- Tabs -->
+    <string name="tab_home">خانه</string>
+    <string name="tab_sources">پوشه‌های مرجع</string>
+    <string name="tab_history">تاریخچه</string>
+    <string name="tab_settings">تنظیمات</string>
+
+    <!-- Common -->
+    <string name="common_cancel">لغو</string>
+    <string name="common_ok">تأیید</string>
+    <string name="common_remove">حذف</string>
+    <string name="common_next">بعدی</string>
+    <string name="common_back">بازگشت</string>
+    <string name="common_skip">رد کردن</string>
+    <string name="common_change">تغییر</string>
+    <string name="common_not_set">تنظیم نشده</string>
+    <string name="common_more_options">گزینه‌های بیشتر</string>
+
+    <!-- Home -->
+    <string name="home_title">CineSort</string>
+    <string name="home_subtitle">فیلم‌ها و سریال‌هایتان را در یک کتابخانه‌ی مرتب بچینید.</string>
+    <string name="home_scan_button">اسکن و مرتب‌سازی</string>
+    <string name="home_scan_disabled_no_destination">برای شروع اسکن، اول پوشه‌ی مقصد را انتخاب کنید.</string>
+    <string name="home_scan_disabled_no_sources">برای شروع اسکن، دست‌کم یک پوشه‌ی مرجع اضافه کنید.</string>
+    <string name="home_stat_sources">پوشه‌های مرجع</string>
+    <string name="home_stat_destination_free">فضای خالی مقصد</string>
+    <string name="home_free_unknown">نامشخص</string>
+    <string name="home_naming_title">گزینه‌های نام‌گذاری</string>
+    <string name="home_genres">ژانر</string>
+    <string name="home_rating">امتیاز</string>
+    <string name="home_last_run_title">آخرین مرتب‌سازی</string>
+    <string name="home_last_run_none">هنوز مرتب‌سازی‌ای انجام نشده است. اجراهای اخیرتان اینجا دیده می‌شود.</string>
+    <string name="home_last_run_summary">%1$d فایل مرتب شد</string>
+    <string name="home_last_run_undone">بازگردانی شد</string>
+    <string name="home_undo">بازگردانی</string>
+    <string name="home_undo_done">آخرین اجرا بازگردانی شد: %1$d فایل برگشت.</string>
+    <string name="home_undo_failed">بازگردانی با چند مشکل تمام شد. جزئیات را در تاریخچه ببینید.</string>
+    <string name="home_warnings_title">نیازمند توجه</string>
+    <string name="home_warning_no_destination">هنوز پوشه‌ی مقصدی انتخاب نشده است.</string>
+    <string name="home_warning_no_sources">هنوز پوشه‌ی مرجعی نیست. از زبانه‌ی پوشه‌های مرجع یکی اضافه کنید.</string>
+    <string name="home_warning_source_needs_access">دسترسی یک پوشه‌ی مرجع از دست رفته است. از بخش پوشه‌های مرجع دوباره دسترسی بدهید.</string>
+    <string name="home_warning_destination_needs_access">دسترسی پوشه‌ی مقصد از دست رفته است. از بخش پوشه‌های مرجع دوباره دسترسی بدهید.</string>
+    <string name="home_warning_no_api_key">کلید API تنظیم نشده است، پس ژانر و امتیاز خاموش می‌مانند. از تنظیمات می‌توانید کلید اضافه کنید.</string>
+
+    <!-- Sources -->
+    <string name="sources_title">پوشه‌های مرجع</string>
+    <string name="sources_destination_title">پوشه‌ی مقصد</string>
+    <string name="sources_free_space">فضای خالی</string>
+    <string name="sources_status_ok">سالم</string>
+    <string name="sources_status_needs_access">نیازمند دسترسی</string>
+    <string name="sources_add_source">افزودن پوشه‌ی مرجع</string>
+    <string name="sources_include_subfolders">شامل زیرپوشه‌ها</string>
+    <string name="sources_depth">حداکثر عمق: %1$d</string>
+    <string name="sources_remove_confirm_title">پوشه‌ی مرجع حذف شود؟</string>
+    <string name="sources_remove_confirm_message">این پوشه دیگر اسکن نمی‌شود. فایل‌های داخل آن حذف نمی‌شوند.</string>
+    <string name="sources_empty_title">پوشه‌ی مرجعی نیست</string>
+    <string name="sources_empty_message">پوشه‌هایی را که فیلم‌ها و قسمت‌های دانلودشده‌تان در آن‌هاست اضافه کنید.</string>
+    <string name="sources_no_destination_title">هنوز مقصدی نیست</string>
+    <string name="sources_no_destination_message">پوشه‌ای را انتخاب کنید که کتابخانه‌ی مرتب‌شده‌تان در آن قرار می‌گیرد.</string>
+    <string name="sources_pick_destination">انتخاب پوشه‌ی مقصد</string>
+    <string name="sources_roots_result">پوشه‌های کتابخانه — ساخته شد: %1$s · از قبل بود: %2$s</string>
+    <string name="sources_roots_none">پوشه‌های کتابخانه آماده‌اند.</string>
+    <string name="sources_picker_unavailable">انتخاب‌گر پوشه روی این دستگاه در دسترس نیست.</string>
+
+    <!-- History -->
+    <string name="history_title">تاریخچه</string>
+    <string name="history_empty_title">هنوز اجرایی نیست</string>
+    <string name="history_empty_message">اجراهای تمام‌شده‌ی مرتب‌سازی اینجا فهرست می‌شوند و اجراهای واجد شرایط را می‌شود بازگردانی کرد.</string>
+
+    <!-- Flow placeholder screens -->
+    <string name="scan_title">اسکن</string>
+    <string name="scan_message">اسکن از صفحه‌ی خانه شروع می‌شود، وقتی پوشه‌های مرجع و مقصد آماده باشند.</string>
+    <string name="preview_title">پیش‌نمایش</string>
+    <string name="preview_message">پیش‌نمایش بعد از تمام شدن اسکن نمایش داده می‌شود.</string>
+    <string name="run_title">در حال مرتب‌سازی</string>
+    <string name="run_message">پیشرفت اجرا هنگام مرتب‌سازی فایل‌ها اینجا نمایش داده می‌شود.</string>
+    <string name="report_title">گزارش</string>
+    <string name="report_message">گزارش اجرا وقتی مرتب‌سازی تمام شود اینجا نمایش داده می‌شود.</string>
+    <string name="flow_go_home">رفتن به خانه</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">به CineSort خوش آمدید</string>
+    <string name="onboarding_welcome_message">این برنامه پوشه‌هایی با نام‌های شلوغ انتشار را اسکن می‌کند و هر فایل را — بدون تغییر نام خودش — به یک کتابخانه‌ی مرتب از فیلم و سریال منتقل می‌کند.</string>
+    <string name="onboarding_destination_title">انتخاب پوشه‌ی مقصد</string>
+    <string name="onboarding_destination_message">پوشه‌ی کتابخانه‌تان را انتخاب کنید. برنامه همان موقع پوشه‌های فیلم و سریال را داخل آن می‌سازد.</string>
+    <string name="onboarding_pick_destination">انتخاب پوشه‌ی مقصد</string>
+    <string name="onboarding_destination_chosen">مقصد: %1$s</string>
+    <string name="onboarding_sources_title">افزودن پوشه‌های مرجع</string>
+    <string name="onboarding_sources_message">پوشه‌هایی را که دانلودهایتان در آن‌ها قرار می‌گیرد انتخاب کنید. بعداً هم از زبانه‌ی پوشه‌های مرجع می‌توانید اضافه کنید.</string>
+    <string name="onboarding_add_source">افزودن پوشه‌ی مرجع</string>
+    <string name="onboarding_sources_count">%1$d پوشه‌ی مرجع اضافه شد</string>
+    <string name="onboarding_keys_title">کلیدهای فراداده (اختیاری)</string>
+    <string name="onboarding_keys_message">کلیدهای خودتان برای TMDB یا OMDb را اضافه کنید تا روی پوشه‌های فیلم، ژانر و امتیاز بنشیند. بدون کلید هم همه‌چیز کار می‌کند.</string>
+    <string name="onboarding_done_title">همه‌چیز آماده است</string>
+    <string name="onboarding_done_message">حالا می‌توانید از صفحه‌ی خانه، پوشه‌های مرجع را اسکن و کتابخانه‌تان را مرتب کنید.</string>
+    <string name="onboarding_finish">شروع استفاده از CineSort</string>
+
+    <!-- Settings -->
+    <string name="settings_title">تنظیمات</string>
+    <string name="settings_general">عمومی</string>
+    <string name="settings_language">زبان</string>
+    <string name="settings_language_fa">فارسی</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_theme">پوسته</string>
+    <string name="settings_theme_system">سیستم</string>
+    <string name="settings_theme_dark">تیره</string>
+    <string name="settings_theme_light">روشن</string>
+    <string name="settings_dynamic_color">رنگ پویا</string>
+    <string name="settings_persian_digits">ارقام فارسی</string>
+    <string name="settings_jalali_dates">تاریخ شمسی</string>
+    <string name="settings_folders">پوشه‌ها</string>
+    <string name="settings_folders_destination">پوشه‌ی مقصد</string>
+    <string name="settings_folders_sources">پوشه‌های مرجع</string>
+    <string name="settings_folders_manage">مدیریت در زبانه‌ی پوشه‌های مرجع</string>
+    <string name="settings_naming">نام‌گذاری</string>
+    <string name="settings_movie_add_year">پوشه‌های فیلم: افزودن سال</string>
+    <string name="settings_movie_add_genres">پوشه‌های فیلم: افزودن ژانر</string>
+    <string name="settings_movie_add_rating">پوشه‌های فیلم: افزودن امتیاز</string>
+    <string name="settings_series_add_year">پوشه‌های سریال: افزودن سال</string>
+    <string name="settings_series_add_genres">پوشه‌های سریال: افزودن ژانر</string>
+    <string name="settings_series_add_rating">پوشه‌های سریال: افزودن امتیاز</string>
+    <string name="settings_max_genres">حداکثر ژانر: %1$d</string>
+    <string name="settings_max_genres_label">حداکثر ژانر</string>
+    <string name="settings_max_depth_label">عمق پیش‌فرض اسکن</string>
+    <string name="settings_title_casing">حالت حروف عنوان</string>
+    <string name="settings_title_casing_smart">حروف‌گذاری هوشمند</string>
+    <string name="settings_title_casing_as_filename">همان‌طور که در نام فایل است</string>
+    <string name="settings_fill_missing_year">پر کردن سالِ ناموجود از فراداده</string>
+    <string name="settings_metadata">فراداده</string>
+    <string name="settings_tmdb_key">کلید API برای TMDB</string>
+    <string name="settings_omdb_key">کلید API برای OMDb</string>
+    <string name="settings_test_key">آزمایش کلید</string>
+    <string name="settings_get_key">دریافت کلید</string>
+    <string name="settings_clear_key">پاک کردن</string>
+    <string name="settings_show_key">نمایش کلید</string>
+    <string name="settings_hide_key">پنهان کردن کلید</string>
+    <string name="settings_key_test_success">کلید کار می‌کند: %1$s</string>
+    <string name="settings_key_test_failed">آزمایش کلید ناموفق بود: %1$s</string>
+    <string name="settings_key_empty">اول یک کلید وارد کنید.</string>
+    <string name="settings_rating_source">منبع امتیاز</string>
+    <string name="settings_rating_source_any">هر کدام که بود (ترجیح با IMDb)</string>
+    <string name="settings_rating_source_imdb_only">فقط IMDb</string>
+    <string name="settings_metadata_unavailable">اگر فراداده در دسترس نبود</string>
+    <string name="settings_metadata_unavailable_continue">ادامه بدون تزئین نام</string>
+    <string name="settings_metadata_unavailable_hold">نگه داشتن موارد آسیب‌دیده</string>
+    <string name="settings_genre_normalization">یکدست‌سازی نام ژانرها</string>
+    <string name="settings_clear_cache">پاک کردن حافظه‌ی فراداده</string>
+    <string name="settings_cache_cleared">حافظه‌ی فراداده پاک شد.</string>
+    <string name="settings_safety">ایمنی و رفتار</string>
+    <string name="settings_skip_preview">رد کردن پیش‌نمایش</string>
+    <string name="settings_min_file_age">حداقل سن فایل: %1$d ثانیه</string>
+    <string name="settings_ignore_samples">نادیده گرفتن فایل‌های نمونه</string>
+    <string name="settings_move_companions">انتقال زیرنویس‌ها همراه ویدئو</string>
+    <string name="settings_conflict_default">رفتار پیش‌فرض هنگام تداخل نام</string>
+    <string name="settings_conflict_ask">پرسیدن در پیش‌نمایش</string>
+    <string name="settings_conflict_skip">رد کردن</string>
+    <string name="settings_conflict_keep_both">نگه داشتن هر دو</string>
+    <string name="settings_remove_empty">حذف پوشه‌های مرجع خالی بعد از اجرا</string>
+    <string name="settings_remove_empty_junk">فایل‌های اضافیِ باقی‌مانده را خالی حساب کن</string>
+    <string name="settings_advanced">پیشرفته</string>
+    <string name="settings_video_extensions">پسوندهای ویدئو (با ویرگول جدا شود)</string>
+    <string name="settings_extra_noise">واژه‌های اضافیِ نویز (با ویرگول جدا شود)</string>
+    <string name="settings_max_depth">عمق پیش‌فرض اسکن: %1$d</string>
+    <string name="settings_saved_corrections">اصلاحیه‌های ذخیره‌شده</string>
+    <string name="settings_saved_corrections_empty">هنوز اصلاحیه‌ای ذخیره نشده است.</string>
+    <string name="settings_correction_item">%1$s ← %2$s</string>
+    <string name="settings_export_diagnostics">خروجی گرفتن از اطلاعات تشخیصی</string>
+    <string name="settings_diagnostics_chooser">اشتراک‌گذاری اطلاعات تشخیصی</string>
+    <string name="settings_about">درباره</string>
+    <string name="settings_about_version">نسخه‌ی %1$s</string>
+    <string name="settings_about_developer">ساخته‌ی %1$s</string>
+    <string name="settings_licenses">مجوزهای متن‌باز</string>
+    <string name="settings_licenses_body">این برنامه با نرم‌افزارهای متن‌باز ساخته شده است: Kotlin و کتابخانه‌های Android Jetpack (مجوز Apache نسخه‌ی ۲)، Jetpack Compose و Material 3 (مجوز Apache نسخه‌ی ۲)، Hilt (مجوز Apache نسخه‌ی ۲)، Room (مجوز Apache نسخه‌ی ۲)، WorkManager (مجوز Apache نسخه‌ی ۲)، Coil (مجوز Apache نسخه‌ی ۲)، Retrofit و OkHttp (مجوز Apache نسخه‌ی ۲)، kotlinx.serialization (مجوز Apache نسخه‌ی ۲)، Timber (مجوز Apache نسخه‌ی ۲) و قلم Vazirmatn (مجوز SIL Open Font نسخه‌ی ۱٫۱).</string>
+    <string name="settings_diagnostics_header">اطلاعات تشخیصی CineSort (کلیدهای API هرگز در آن نیست)</string>
+
+    <!-- Common (flow) -->
+    <string name="common_apply">اعمال</string>
+    <string name="common_close">بستن</string>
+
+    <!-- Scan -->
+    <string name="scan_stage_scanning">اسکن</string>
+    <string name="scan_stage_parsing">تجزیه‌ی نام‌ها</string>
+    <string name="scan_stage_metadata">تطبیق فراداده</string>
+    <string name="scan_stage_planning">برنامه‌ریزی</string>
+    <string name="scan_entries">%1$d مورد اسکن شد</string>
+    <string name="scan_videos">%1$d ویدئو پیدا شد</string>
+    <string name="scan_start">شروع اسکن</string>
+    <string name="scan_view_preview">دیدن پیش‌نمایش</string>
+    <string name="scan_error_title">اسکن ناموفق بود</string>
+    <string name="scan_error_no_setup">اول پوشه‌ی مقصد را انتخاب و دست‌کم یک پوشه‌ی مرجع اضافه کنید.</string>
+    <string name="scan_running_message">در حال اسکن پوشه‌های مرجع…</string>
+    <string name="scan_planned_message">%1$d فایل آماده‌ی بررسی در پیش‌نمایش است.</string>
+
+    <!-- Preview -->
+    <string name="preview_label_movies">فیلم‌ها</string>
+    <string name="preview_label_episodes">قسمت‌ها</string>
+    <string name="preview_label_needs_review">نیازمند بررسی</string>
+    <string name="preview_label_conflicts">تداخل نام</string>
+    <string name="preview_label_total_size">حجم کل</string>
+    <string name="preview_cross_volume">کپی بین حافظه‌ها لازم است: %1$s کپی می‌شود که کندتر است.</string>
+    <string name="preview_search_hint">جست‌وجوی نام فایل یا عنوان</string>
+    <string name="preview_filter_all">همه</string>
+    <string name="preview_filter_movies">فیلم‌ها</string>
+    <string name="preview_filter_series">سریال‌ها</string>
+    <string name="preview_filter_needs_review">نیازمند بررسی</string>
+    <string name="preview_filter_conflicts">تداخل‌ها</string>
+    <string name="preview_filter_skipped">ردشده‌ها</string>
+    <string name="preview_naming_genres">ژانر</string>
+    <string name="preview_naming_rating">امتیاز</string>
+    <string name="preview_naming_max_genres">حداکثر ژانر</string>
+    <string name="preview_group_unplanned">هنوز مقصدی ندارد</string>
+    <string name="preview_group_files">%1$d فایل</string>
+    <string name="preview_from_folder">از روی پوشه</string>
+    <string name="preview_confidence_high">اطمینان بالا</string>
+    <string name="preview_confidence_medium">اطمینان متوسط</string>
+    <string name="preview_confidence_low">اطمینان پایین</string>
+    <string name="preview_type_movie">فیلم</string>
+    <string name="preview_type_series">سریال</string>
+    <string name="preview_companions">زیرنویس</string>
+    <string name="preview_warnings">%1$d هشدار</string>
+    <string name="preview_status_conflict">تداخل نام</string>
+    <string name="preview_status_needs_review">نیازمند بررسی</string>
+    <string name="preview_status_skipped">رد شد</string>
+    <string name="preview_status_already">از قبل مرتب است</string>
+    <string name="preview_status_recent">هنوز در حال دانلود؟</string>
+    <string name="preview_bulk_select_ready">انتخاب همه‌ی آماده‌ها</string>
+    <string name="preview_bulk_deselect_review">لغو انتخاب نیازمند بررسی</string>
+    <string name="preview_bulk_clear">پاک کردن انتخاب</string>
+    <string name="preview_selected_summary">%1$d انتخاب‌شده · %2$s</string>
+    <string name="preview_organize">مرتب‌سازی %1$d فایل</string>
+    <string name="preview_confirm_title">مرتب‌سازی شروع شود؟</string>
+    <string name="preview_confirm_message">%1$d فایل (%2$s) به پوشه‌ی مقصد منتقل می‌شود. نام هیچ فایلی تغییر نمی‌کند.</string>
+    <string name="preview_confirm_cross">%1$s از آن نیازمند کپی بین حافظه‌هاست.</string>
+    <string name="preview_empty_title">چیزی برای مرتب‌سازی نیست</string>
+    <string name="preview_empty_message">اسکن هیچ فایل ویدئویی برای مرتب‌سازی پیدا نکرد.</string>
+    <string name="preview_no_results_title">موردی پیدا نشد</string>
+    <string name="preview_no_results_message">هیچ فایلی با پالایه و جست‌وجوی فعلی جور نیست.</string>
+    <string name="preview_error_title">مشکلی پیش آمد</string>
+    <string name="preview_metadata_held">فراداده در دسترس نیست — نگه داشته شد</string>
+    <string name="preview_select_group">انتخاب گروه</string>
+    <string name="preview_edit">ویرایش</string>
+
+    <!-- Edit sheet -->
+    <string name="edit_title">ویرایش فایل</string>
+    <string name="edit_why">چرا این نام؟</string>
+    <string name="edit_segment_title">عنوان</string>
+    <string name="edit_segment_anchor">نشانه (سال / قسمت)</string>
+    <string name="edit_segment_tail">ادامه‌ی نادیده‌گرفته‌شده</string>
+    <string name="edit_type">نوع</string>
+    <string name="edit_field_title">عنوان</string>
+    <string name="edit_field_year">سال (اختیاری)</string>
+    <string name="edit_field_season">فصل</string>
+    <string name="edit_field_episodes">قسمت‌ها (با ویرگول جدا شود)</string>
+    <string name="edit_apply_series">اعمال روی همه‌ی فایل‌های این سریال/گروه</string>
+    <string name="edit_remember">این اصلاح را به خاطر بسپار</string>
+    <string name="edit_search_metadata">جست‌وجوی فراداده</string>
+    <string name="edit_no_candidates">گزینه‌ای پیدا نشد.</string>
+    <string name="edit_no_keys">برای جست‌وجوی فراداده، در تنظیمات یک کلید TMDB یا OMDb اضافه کنید.</string>
+    <string name="edit_conflict_title">فایلی با این نام از قبل هست</string>
+    <string name="edit_conflict_target">مقصد: %1$s</string>
+    <string name="edit_conflict_existing">فایل موجود: %1$s · %2$s</string>
+    <string name="edit_conflict_probably_same">احتمالاً همان فایل است (حجم یکسان)</string>
+    <string name="edit_conflict_skip">این فایل رد شود</string>
+    <string name="edit_conflict_keep_both">هر دو نگه داشته شود (افزودن شماره)</string>
+    <string name="edit_conflict_apply_all">اعمال روی همه‌ی تداخل‌ها</string>
+    <string name="edit_rule_episode_marker">نشانه‌ی قسمت (مثل S02E01) پایان عنوان است؛ هرچه بعد از آن بیاید نادیده گرفته می‌شود.</string>
+    <string name="edit_rule_year">آخرین سالِ پیش از برچسب‌های کیفیت، سال انتشار است و عنوان را تمام می‌کند.</string>
+    <string name="edit_rule_resolution">سالی پیدا نشد، پس اولین برچسب وضوح (مثل 1080p) عنوان را تمام می‌کند.</string>
+    <string name="edit_rule_noise_run">سال یا وضوحی پیدا نشد، پس عنوان جایی تمام می‌شود که برچسب‌های کیفیت شروع می‌شوند.</string>
+    <string name="edit_rule_folder">عنوان و فصل از پوشه‌ای گرفته شده که این فایل در آن است.</string>
+    <string name="edit_rule_unrecognized">این نام شناخته نشد. برای مرتب‌سازی، عنوان و نوع را ویرایش کنید.</string>
+    <string name="edit_unrecognized_reason">دلیل: %1$s</string>
+
+    <!-- Run -->
+    <string name="run_counts">%1$d از %2$d فایل انجام شد</string>
+    <string name="run_preparing">در حال آماده‌سازی…</string>
+    <string name="run_cancel_confirm_title">مرتب‌سازی لغو شود؟</string>
+    <string name="run_cancel_confirm_message">فایل‌هایی که منتقل شده‌اند در مقصد می‌مانند. بقیه سر جایشان می‌مانند.</string>
+    <string name="run_failed_title">مرتب‌سازی کامل نشد</string>
+    <string name="run_failed_message">اجرا پیش از پایان متوقف شد. می‌توانید برگردید و دوباره تلاش کنید.</string>
+    <string name="run_cancelled_title">مرتب‌سازی لغو شد</string>
+    <string name="run_back_preview">بازگشت به پیش‌نمایش</string>
+    <string name="run_back_home">بازگشت به خانه</string>
+    <string name="run_no_run_title">اجرای فعالی نیست</string>
+    <string name="run_no_run_message">از صفحه‌ی پیش‌نمایش یک اجرا شروع کنید.</string>
+
+    <!-- Report -->
+    <string name="report_summary">%1$d از %2$d فایل مرتب شد</string>
+    <string name="report_label_done">مرتب شد</string>
+    <string name="report_label_failed">ناموفق</string>
+    <string name="report_label_skipped">رد شد</string>
+    <string name="report_failures_title">خطاها</string>
+    <string name="report_retry_failed">تلاش دوباره‌ی ناموفق‌ها</string>
+    <string name="report_undo">بازگردانی این اجرا</string>
+    <string name="report_open_destination">باز کردن پوشه‌ی مقصد</string>
+    <string name="report_share">اشتراک‌گذاری اطلاعات تشخیصی</string>
+    <string name="report_diagnostics_header">گزارش اجرای CineSort (بدون کلید API و بدون مسیر کامل)</string>
+    <string name="report_undo_done">اجرا بازگردانی شد: %1$d فایل برگشت.</string>
+    <string name="report_undo_problems">بازگردانی تمام شد: %1$d فایل برگشت، %2$d مشکل بود.</string>
+    <string name="report_no_run_title">اجرا پیدا نشد</string>
+    <string name="report_no_run_message">این اجرا دیگر در سوابق نیست.</string>
+    <string name="report_open_failed">باز کردن پوشه‌ی مقصد ممکن نشد.</string>
+    <string name="report_finished">تمام‌شده</string>
+    <string name="report_running">در حال اجرا</string>
+
+    <!-- History (flow) -->
+    <string name="history_status_finished">تمام‌شده</string>
+    <string name="history_status_running">در حال اجرا</string>
+    <string name="history_status_undone">بازگردانی‌شده</string>
+    <string name="history_items">%1$d فایل</string>
+    <string name="history_done">%1$d مرتب شد</string>
+    <string name="history_failed">%1$d ناموفق</string>
+    <string name="history_undo">بازگردانی</string>
+    <string name="history_undo_done">اجرا بازگردانی شد: %1$d فایل برگشت.</string>
+    <string name="history_undo_problems">بازگردانی با %1$d مشکل تمام شد.</string>
+    <string name="history_open_report">دیدن گزارش</string>
+</resources>
