@@ -19,8 +19,6 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Core library desugaring (spec section 3): java.time / java.util.stream on API 24+.
-        coreLibraryDesugaringEnabled = true
     }
 
     buildTypes {
@@ -42,6 +40,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Core library desugaring (spec section 3): java.time / java.util.stream on API 24+.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
