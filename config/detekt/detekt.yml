@@ -8,7 +8,6 @@ complexity:
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10
-    ignoreDefault: true
   TooManyFunctions:
     active: false
   CyclomaticComplexMethod:
@@ -25,13 +24,6 @@ style:
     active: true
   ForbiddenComment:
     active: true
-    values: ["TODO:", "FIXME:", "STOPSHIP:"]
+    comments: ["TODO:", "FIXME:", "STOPSHIP:"]
   UnusedPrivateMember:
     active: true
-
-potential-bugs:
-  MaxChainedCallsOnSameLine:
-    active: false
-
-formatting:
-  active: false
