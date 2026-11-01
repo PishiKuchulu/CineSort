@@ -12,9 +12,15 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -31,6 +37,8 @@ import com.cinesort.app.feature.history.HistoryScreen
 import com.cinesort.app.feature.home.HomeScreen
 import com.cinesort.app.feature.onboarding.OnboardingScreen
 import com.cinesort.app.feature.settings.SettingsScreen
+import com.cinesort.app.feature.update.AppUpdateController
+import com.cinesort.app.feature.update.AppUpdateDialog
 import com.cinesort.app.feature.sources.SourcesScreen
 
 private data class TabItem(val route: String, val labelRes: Int, val icon: ImageVector)
@@ -47,7 +55,40 @@ private val Tabs = listOf(
  * tab routes only; Scan/Preview/Run/Report and Onboarding are full-screen.
  */
 @Composable
-fun CineSortNavHost(startOnOnboarding: Boolean) {
+fun CineSortNavHost(startOnOnboarding: Boolean, persianDigits: Boolean) {
+    val context = LocalContext.current
+    // One update controller for the whole app: the launch popup and the
+    // Settings → About row share its state (Anvex pattern).
+    val updateController = remember {
+        AppUpdateController(context.applicationContext)
+    }
+    DisposableEffect(updateController) {
+        onDispose { updateController.dispose() }
+    }
+    var updateDialogDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(updateController.state) {
+        // A fresh find re-opens the popup even after an earlier dismissal.
+        if (updateController.state is AppUpdateController.State.Available) {
+            updateDialogDismissed = false
+        }
+    }
+    LaunchedEffect(Unit) {
+        updateController.check()
+    }
+    val updateState = updateController.state
+    val showUpdateDialog = !updateDialogDismissed &&
+        (
+            updateState is AppUpdateController.State.Available ||
+                updateState is AppUpdateController.State.Downloading ||
+                updateState is AppUpdateController.State.Downloaded
+            )
+    if (showUpdateDialog) {
+        AppUpdateDialog(
+            controller = updateController,
+            persianDigits = persianDigits,
+            onDismiss = { updateDialogDismissed = true },
+        )
+    }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -112,6 +153,7 @@ fun CineSortNavHost(startOnOnboarding: Boolean) {
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
+                    updateController = updateController,
                 )
             }
             composable(Routes.SCAN) {

@@ -318,4 +318,24 @@
     <string name="history_undo_done">اجرا بازگردانی شد: %1$d فایل برگشت.</string>
     <string name="history_undo_problems">بازگردانی با %1$d مشکل تمام شد.</string>
     <string name="history_open_report">دیدن گزارش</string>
+    <string name="settings_section_appearance">ظاهر</string>
+    <string name="settings_section_api_keys">کلیدهای API</string>
+    <string name="settings_sub_scanning">اسکن</string>
+    <string name="settings_sub_organizing">سازمان‌دهی</string>
+    <string name="update_check">بررسی به‌روزرسانی</string>
+    <string name="update_checking">در حال بررسی به‌روزرسانی…</string>
+    <string name="update_up_to_date">آخرین نسخه نصب است</string>
+    <string name="update_available_title">به‌روزرسانی موجود است</string>
+    <string name="update_available_subtitle">نسخه‌ی جدیدی آماده است</string>
+    <string name="update_current">فعلی</string>
+    <string name="update_new">جدید</string>
+    <string name="update_download">دانلود به‌روزرسانی</string>
+    <string name="update_downloading">در حال دانلود…</string>
+    <string name="update_downloaded">دانلود کامل شد — بزنید تا نصب شود</string>
+    <string name="update_install">نصب</string>
+    <string name="update_later">بعداً</string>
+    <string name="update_cancel">لغو</string>
+    <string name="update_failed">بررسی به‌روزرسانی ناموفق بود</string>
+    <string name="update_status_failed">خطا: %1$s</string>
+    <string name="update_section">به‌روزرسانی</string>
 </resources>

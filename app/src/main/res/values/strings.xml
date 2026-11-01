@@ -318,4 +318,24 @@
     <string name="history_undo_done">Run undone: %1$d files moved back.</string>
     <string name="history_undo_problems">Undo finished with %1$d problem(s).</string>
     <string name="history_open_report">Open report</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_api_keys">API keys</string>
+    <string name="settings_sub_scanning">Scanning</string>
+    <string name="settings_sub_organizing">Organizing</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You have the latest version</string>
+    <string name="update_available_title">Update available</string>
+    <string name="update_available_subtitle">A new version is ready</string>
+    <string name="update_current">Current</string>
+    <string name="update_new">New</string>
+    <string name="update_download">Download update</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_downloaded">Download complete — tap Install</string>
+    <string name="update_install">Install</string>
+    <string name="update_later">Later</string>
+    <string name="update_cancel">Cancel</string>
+    <string name="update_failed">Update check failed</string>
+    <string name="update_status_failed">Failed: %1$s</string>
+    <string name="update_section">Update</string>
 </resources>

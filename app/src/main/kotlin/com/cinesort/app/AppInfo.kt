@@ -10,5 +10,5 @@ package com.cinesort.app
 object AppInfo {
     const val APP_NAME: String = "CineSort"
     const val PACKAGE_ID: String = "com.cinesort.app"
-    const val DEVELOPER_CREDIT: String = "Farzad.Sh"
+    const val DEVELOPER_CREDIT: String = "Farzad Sholeh"
 }

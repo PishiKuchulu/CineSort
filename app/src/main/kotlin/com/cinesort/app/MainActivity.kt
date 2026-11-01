@@ -45,7 +45,10 @@ class MainActivity : AppCompatActivity() {
                 darkTheme = darkTheme,
                 dynamicColor = settings.dynamicColor,
             ) {
-                CineSortNavHost(startOnOnboarding = startOnOnboarding)
+                CineSortNavHost(
+                    startOnOnboarding = startOnOnboarding,
+                    persianDigits = settings.persianDigits,
+                )
             }
         }
     }
