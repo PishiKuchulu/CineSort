@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -117,11 +118,12 @@ fun OnboardingScreen(
                         Button(onClick = { destinationPicker.launch(null) }) {
                             Text(stringResource(R.string.onboarding_pick_destination))
                         }
-                        if (state.rootsError != null) {
+                        val rootsError = state.rootsError
+                        if (rootsError != null) {
                             Text(
                                 text = stringResource(
                                     R.string.roots_prepare_error,
-                                    state.rootsError,
+                                    rootsError,
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,

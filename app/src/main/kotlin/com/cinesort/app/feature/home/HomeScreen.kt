@@ -1,7 +1,5 @@
 package com.cinesort.app.feature.home
 
-import android.icu.util.Calendar
-import android.icu.util.PersianCalendar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,17 +40,82 @@ import com.cinesort.core.designsystem.component.StatTile
 import com.cinesort.core.designsystem.component.formatBytes
 import com.cinesort.core.designsystem.component.toPersianDigits
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+// Pure-Kotlin Jalali conversion (jalaali algorithm, truncating division as in
+// the reference implementation). android.icu.util has no PersianCalendar class
+// in the Android framework subset, so the ICU import did not compile on CI.
+private val jalaliBreaks = intArrayOf(
+    -61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181,
+    1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456, 3178,
+)
+
+/** Returns (leap flag, Gregorian year, March day) of Farvardin 1 for a Jalali year. */
+private fun jalaliYearInfo(jalaliYear: Int): Triple<Int, Int, Int> {
+    var leapJalali = -14
+    var previousBreak = jalaliBreaks[0]
+    var jump = 0
+    for (index in 1 until jalaliBreaks.size) {
+        val breakYear = jalaliBreaks[index]
+        jump = breakYear - previousBreak
+        if (jalaliYear < breakYear) break
+        leapJalali += jump / 33 * 8 + (jump % 33) / 4
+        previousBreak = breakYear
+    }
+    var yearsSinceBreak = jalaliYear - previousBreak
+    leapJalali += yearsSinceBreak / 33 * 8 + (yearsSinceBreak % 33 + 3) / 4
+    if (jump % 33 == 4 && jump - yearsSinceBreak == 4) leapJalali += 1
+    val gregorianYear = jalaliYear + 621
+    val leapGregorian = gregorianYear / 4 - (gregorianYear / 100 + 1) * 3 / 4 - 150
+    val marchDay = 20 + leapJalali - leapGregorian
+    if (jump - yearsSinceBreak < 6) {
+        yearsSinceBreak = yearsSinceBreak - jump + (jump + 4) / 33 * 33
+    }
+    var leap = (yearsSinceBreak + 1) % 33 - 1
+    leap %= 4
+    if (leap == -1) leap = 4
+    return Triple(leap, gregorianYear, marchDay)
+}
+
+/** Day number of a Gregorian date (month is 1-based). */
+private fun gregorianDayNumber(year: Int, month: Int, day: Int): Int {
+    var dayNumber = (year + (month - 8) / 6 + 100100) * 1461 / 4 +
+        (153 * ((month + 9) % 12) + 2) / 5 + day - 34840408
+    dayNumber -= (year + 100100 + (month - 8) / 6) / 100 * 3 / 4
+    return dayNumber + 752
+}
+
+/** Converts a Gregorian date (month is 1-based) to a Jalali (year, month, day). */
+private fun gregorianToJalali(year: Int, month: Int, day: Int): Triple<Int, Int, Int> {
+    val dayNumber = gregorianDayNumber(year, month, day)
+    var jalaliYear = year - 621
+    val (leap, marchYear, marchDay) = jalaliYearInfo(jalaliYear)
+    var remaining = dayNumber - gregorianDayNumber(marchYear, 3, marchDay)
+    if (remaining >= 0) {
+        if (remaining <= 185) {
+            return Triple(jalaliYear, 1 + remaining / 31, remaining % 31 + 1)
+        }
+        remaining -= 186
+    } else {
+        jalaliYear -= 1
+        remaining += 179
+        if (leap == 1) remaining += 1
+    }
+    return Triple(jalaliYear, 7 + remaining / 30, remaining % 30 + 1)
+}
 
 /** Formats a run timestamp, honoring the Jalali-dates and Persian-digits settings. */
 fun formatRunDate(epochMillis: Long, jalali: Boolean, persianDigits: Boolean): String {
     val raw = if (jalali) {
-        val calendar = PersianCalendar()
-        calendar.timeInMillis = epochMillis
-        val year = calendar.get(Calendar.YEAR)
-        val month = calendar.get(Calendar.MONTH) + 1
-        val day = calendar.get(Calendar.DAY_OF_MONTH)
+        val gregorian = Calendar.getInstance()
+        gregorian.timeInMillis = epochMillis
+        val (year, month, day) = gregorianToJalali(
+            gregorian.get(Calendar.YEAR),
+            gregorian.get(Calendar.MONTH) + 1,
+            gregorian.get(Calendar.DAY_OF_MONTH),
+        )
         String.format(Locale.ROOT, "%04d/%02d/%02d", year, month, day)
     } else {
         SimpleDateFormat("yyyy/MM/dd", Locale.ROOT).format(Date(epochMillis))
