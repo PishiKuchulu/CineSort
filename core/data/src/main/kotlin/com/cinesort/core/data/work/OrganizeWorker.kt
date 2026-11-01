@@ -24,6 +24,7 @@ import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
 import com.cinesort.core.domain.model.ScannedFile
 import com.cinesort.core.domain.planner.ItemType
+import com.cinesort.core.domain.planner.MetadataInfo
 import com.cinesort.core.domain.planner.PlannedItem
 import com.cinesort.core.domain.planner.PlannedStatus
 import com.cinesort.core.parser.AnchorKind
@@ -127,6 +128,7 @@ class OrganizeWorker @AssistedInject constructor(
                     draft.targetSegments.split('/')
                 },
                 targetFileName = draft.targetFileName,
+                metadata = draft.posterUrl?.let { MetadataInfo(posterUrl = it) },
                 status = PlannedStatus.READY,
                 selected = true,
                 crossVolume = draft.crossVolume,
@@ -177,6 +179,9 @@ class OrganizeWorker @AssistedInject constructor(
         }
 
         val settings = settingsRepository.current()
+        if (settings.downloadPosters) {
+            downloadPosters(pendingItems, destinationRoot)
+        }
         if (settings.removeEmptyFolders) {
             cleanupEmptySourceFolders(items, settings.treatJunkAsEmpty)
         }
@@ -190,6 +195,44 @@ class OrganizeWorker @AssistedInject constructor(
                 .putInt(KEY_SKIPPED_ITEMS, report.skipped)
                 .build(),
         )
+    }
+
+    /**
+     * Optional poster download (owner feature): for every distinct target
+     * folder of this run with a matched poster, save `poster.jpg` into it —
+     * the movie's own folder, or the series root folder for episodes. Existing
+     * posters are kept; failures are logged and never fail the run.
+     */
+    private suspend fun downloadPosters(items: List<PlannedItem>, destinationRoot: DirRef) {
+        val byFolder = LinkedHashMap<String, Pair<List<String>, String>>()
+        for (item in items) {
+            val url = item.metadata?.posterUrl ?: continue
+            val folderSegments = when (item.type) {
+                ItemType.EPISODE -> item.targetSegments.dropLast(1)
+                else -> item.targetSegments
+            }
+            if (folderSegments.isEmpty()) continue
+            byFolder.putIfAbsent(folderSegments.joinToString("/"), folderSegments to url)
+        }
+        for ((_, folderAndUrl) in byFolder) {
+            val (segments, url) = folderAndUrl
+            try {
+                var dir: DirRef? = destinationRoot
+                for (segment in segments) {
+                    dir = dir?.let { gateway.findChildDir(it, segment) }
+                    if (dir == null) break
+                }
+                val folder = dir ?: continue
+                val exists = gateway.listChildren(folder).any { child ->
+                    !child.isDirectory && child.ref.name.equals(POSTER_FILE_NAME, ignoreCase = true)
+                }
+                if (exists) continue
+                val bytes = PosterDownloader.fetch(url) ?: continue
+                gateway.createFile(folder, POSTER_FILE_NAME, "image/jpeg", bytes)
+            } catch (e: Exception) {
+                Timber.w(e, "poster save failed for %s", segments.joinToString("/"))
+            }
+        }
     }
 
     /**

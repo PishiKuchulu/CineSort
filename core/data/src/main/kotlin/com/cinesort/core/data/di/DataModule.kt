@@ -43,6 +43,13 @@ val MIGRATION_1_2: Migration = object : Migration(1, 2) {
     }
 }
 
+/** v3: drafts carry the matched poster URL for the optional poster download. */
+val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE execution_drafts ADD COLUMN posterUrl TEXT")
+    }
+}
+
 /** Hilt wiring for the data layer (spec sections 4, 12). */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -52,7 +59,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CineSortDatabase =
         Room.databaseBuilder(context, CineSortDatabase::class.java, CineSortDatabase.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides

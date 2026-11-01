@@ -543,6 +543,13 @@ fun SettingsScreen(
                             viewModel.update { it.copy(genreNormalization = value) }
                         },
                     )
+                    SwitchRow(
+                        label = stringResource(R.string.settings_download_posters),
+                        checked = settings.downloadPosters,
+                        onCheckedChange = { value ->
+                            viewModel.update { it.copy(downloadPosters = value) }
+                        },
+                    )
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { viewModel.clearMetadataCache() }) {
                         Text(stringResource(R.string.settings_clear_cache))

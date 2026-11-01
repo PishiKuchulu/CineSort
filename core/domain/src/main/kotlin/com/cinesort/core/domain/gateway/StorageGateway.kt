@@ -46,6 +46,9 @@ interface StorageGateway {
         onProgress: (Long) -> Unit = {},
     ): FileRef
 
+    /** Creates a small file with [content] inside [dir] (poster downloads, spec addendum). */
+    suspend fun createFile(dir: DirRef, name: String, mimeType: String, content: ByteArray): FileRef
+
     suspend fun delete(ref: Ref)
     suspend fun volumeIdOf(ref: Ref): String
     suspend fun freeBytes(dir: DirRef): Long?

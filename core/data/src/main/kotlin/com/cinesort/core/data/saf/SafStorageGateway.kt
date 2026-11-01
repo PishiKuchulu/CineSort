@@ -319,6 +319,23 @@ class SafStorageGateway(context: Context) : StorageGateway {
         return@withContext DirRef(created.toString(), name)
     }
 
+    override suspend fun createFile(
+        dir: DirRef,
+        name: String,
+        mimeType: String,
+        content: ByteArray,
+    ): FileRef = withContext(Dispatchers.IO) {
+        val created = DocumentsContract.createDocument(
+            resolver,
+            documentUriOf(dir),
+            mimeType,
+            name,
+        ) ?: throw IOException("provider refused to create file: $name")
+        resolver.openOutputStream(created, "wt")?.use { out -> out.write(content) }
+            ?: throw IOException("provider refused to open output stream: $name")
+        FileRef(created.toString(), name, content.size.toLong(), 0L, dir.id)
+    }
+
     // ------------------------------------------------------------------ move / copy
 
     override suspend fun move(file: FileRef, fromDir: DirRef, toDir: DirRef): FileRef =

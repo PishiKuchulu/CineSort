@@ -123,4 +123,6 @@ data class ExecutionDraftEntity(
     val targetFileName: String,
     val crossVolume: Boolean = false,
     val sourceVolume: String,
+    /** Matched poster URL at plan time, for the optional poster download. */
+    val posterUrl: String? = null,
 )

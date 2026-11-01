@@ -148,6 +148,7 @@
     <string name="settings_metadata_unavailable_continue">ادامه بدون تزئین نام</string>
     <string name="settings_metadata_unavailable_hold">نگه داشتن موارد آسیب‌دیده</string>
     <string name="settings_genre_normalization">یکدست‌سازی نام ژانرها</string>
+    <string name="settings_download_posters">دانلود پوستر در پوشهٔ هر فیلم و سریال</string>
     <string name="settings_clear_cache">پاک کردن حافظه‌ی فراداده</string>
     <string name="settings_cache_cleared">حافظه‌ی فراداده پاک شد.</string>
     <string name="settings_safety">ایمنی و رفتار</string>

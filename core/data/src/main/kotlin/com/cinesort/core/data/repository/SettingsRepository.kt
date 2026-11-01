@@ -76,6 +76,7 @@ class SettingsRepository(context: Context) {
             metadataUnavailable = enumValueOrNull<MetadataUnavailableBehavior>(this[Keys.METADATA_UNAVAILABLE])
                 ?: defaults.metadataUnavailable,
             genreNormalization = this[Keys.GENRE_NORMALIZATION] ?: defaults.genreNormalization,
+            downloadPosters = this[Keys.DOWNLOAD_POSTERS] ?: defaults.downloadPosters,
             skipPreview = this[Keys.SKIP_PREVIEW] ?: defaults.skipPreview,
             minFileAgeSeconds = this[Keys.MIN_FILE_AGE_SECONDS] ?: defaults.minFileAgeSeconds,
             ignoreSamples = this[Keys.IGNORE_SAMPLES] ?: defaults.ignoreSamples,
@@ -114,6 +115,7 @@ class SettingsRepository(context: Context) {
         this[Keys.RATING_SOURCE] = s.ratingSource.name
         this[Keys.METADATA_UNAVAILABLE] = s.metadataUnavailable.name
         this[Keys.GENRE_NORMALIZATION] = s.genreNormalization
+        this[Keys.DOWNLOAD_POSTERS] = s.downloadPosters
         this[Keys.SKIP_PREVIEW] = s.skipPreview
         this[Keys.MIN_FILE_AGE_SECONDS] = s.minFileAgeSeconds
         this[Keys.IGNORE_SAMPLES] = s.ignoreSamples
@@ -148,6 +150,7 @@ class SettingsRepository(context: Context) {
         val RATING_SOURCE = stringPreferencesKey("rating_source")
         val METADATA_UNAVAILABLE = stringPreferencesKey("metadata_unavailable")
         val GENRE_NORMALIZATION = booleanPreferencesKey("genre_normalization")
+        val DOWNLOAD_POSTERS = booleanPreferencesKey("download_posters")
         val SKIP_PREVIEW = booleanPreferencesKey("skip_preview")
         val MIN_FILE_AGE_SECONDS = intPreferencesKey("min_file_age_seconds")
         val IGNORE_SAMPLES = booleanPreferencesKey("ignore_samples")

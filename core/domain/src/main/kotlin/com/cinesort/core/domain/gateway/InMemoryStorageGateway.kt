@@ -210,6 +210,13 @@ class InMemoryStorageGateway : StorageGateway {
         return DirRef(path, name)
     }
 
+    override suspend fun createFile(dir: DirRef, name: String, mimeType: String, content: ByteArray): FileRef {
+        val parentNode = resolve(dir.id) ?: error("parent not found: ${dir.id}")
+        require(parentNode.isDirectory) { "not a directory: ${dir.id}" }
+        parentNode.children[name] = Node(name, false, size = content.size.toLong(), parent = parentNode)
+        return FileRef(childPath(dir.id, name), name, content.size.toLong(), 0L, dir.id)
+    }
+
     override suspend fun move(
         file: FileRef,
         fromDir: DirRef,

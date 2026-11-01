@@ -40,6 +40,8 @@ data class AppSettings(
     val ratingSource: RatingSourcePreference = RatingSourcePreference.ANY,
     val metadataUnavailable: MetadataUnavailableBehavior = MetadataUnavailableBehavior.CONTINUE,
     val genreNormalization: Boolean = true,
+    /** Save the matched poster as poster.jpg inside each movie/series folder. */
+    val downloadPosters: Boolean = false,
     // Safety & behavior
     val skipPreview: Boolean = false,
     val minFileAgeSeconds: Int = 120,

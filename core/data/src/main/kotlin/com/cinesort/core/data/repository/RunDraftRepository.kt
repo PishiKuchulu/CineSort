@@ -153,6 +153,7 @@ class RunDraftRepository(
             targetFileName = targetFileName,
             crossVolume = crossVolume,
             sourceVolume = scanned.sourceVolume,
+            posterUrl = metadata?.posterUrl,
         )
     }
 }
