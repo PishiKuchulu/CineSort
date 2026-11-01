@@ -2,6 +2,8 @@ package com.cinesort.app.feature.onboarding
 
 import android.content.Intent
 import android.net.Uri
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -107,6 +110,32 @@ fun OnboardingScreen(
                             text = stringResource(R.string.onboarding_welcome_message),
                             style = MaterialTheme.typography.bodyLarge,
                         )
+                        Text(
+                            text = stringResource(R.string.settings_language),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilterChip(
+                                selected = state.languageCode == "en",
+                                onClick = {
+                                    viewModel.onLanguagePicked("en")
+                                    AppCompatDelegate.setApplicationLocales(
+                                        LocaleListCompat.forLanguageTags("en"),
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.settings_language_en)) },
+                            )
+                            FilterChip(
+                                selected = state.languageCode == "fa",
+                                onClick = {
+                                    viewModel.onLanguagePicked("fa")
+                                    AppCompatDelegate.setApplicationLocales(
+                                        LocaleListCompat.forLanguageTags("fa"),
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.settings_language_fa)) },
+                            )
+                        }
                     }
                     1 -> {
                         Text(

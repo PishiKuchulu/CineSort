@@ -22,8 +22,10 @@ data class AppSettings(
     val languageCode: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = false,
-    val persianDigits: Boolean = true,
-    val jalaliDates: Boolean = true,
+    // Fresh-install defaults match the English default language; picking
+    // Persian (onboarding or Settings) turns both on with the language.
+    val persianDigits: Boolean = false,
+    val jalaliDates: Boolean = false,
     // Naming (mirrors NamingOptions)
     val movieAddYear: Boolean = true,
     val movieAddGenres: Boolean = false,

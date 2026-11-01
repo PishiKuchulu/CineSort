@@ -52,12 +52,14 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Applies the persisted per-app language. On first launch (no stored choice)
-     * the UI defaults to Persian (spec 1.2 / 10.2) without writing a choice.
+     * the UI defaults to English (owner decision 2026-11-01, superseding the
+     * original Persian-default spec) without writing a choice; the onboarding
+     * welcome step lets the user pick a language explicitly.
      */
     private fun applyPersistedLanguage() {
         lifecycleScope.launch {
             val stored = settingsRepository.settings.first().languageCode
-            val target = stored ?: "fa"
+            val target = stored ?: "en"
             val current = AppCompatDelegate.getApplicationLocales().toLanguageTags()
             if (!current.startsWith(target)) {
                 AppCompatDelegate.setApplicationLocales(

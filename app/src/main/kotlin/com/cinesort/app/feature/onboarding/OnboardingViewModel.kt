@@ -7,6 +7,7 @@ import com.cinesort.core.data.db.DestinationEntity
 import com.cinesort.core.data.metadata.MetadataService
 import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.data.repository.SecretStore
+import com.cinesort.core.data.repository.SettingsRepository
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.usecase.EnsureLibraryRootsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class OnboardingUiState(
+    val languageCode: String = "en",
     val destination: DestinationEntity? = null,
     val sourcesCount: Int = 0,
     val rootsCreated: List<String> = emptyList(),
@@ -35,6 +37,7 @@ data class OnboardingUiState(
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
+    private val settingsRepository: SettingsRepository,
     private val libraryRepository: LibraryRepository,
     private val secretStore: SecretStore,
     private val metadataService: MetadataService,
@@ -75,11 +78,32 @@ class OnboardingViewModel @Inject constructor(
         }
         .combine(tmdbTestMessage) { state, message -> state.copy(tmdbTestMessage = message) }
         .combine(omdbTestMessage) { state, message -> state.copy(omdbTestMessage = message) }
+        .combine(settingsRepository.settings) { state, settings ->
+            state.copy(languageCode = settings.languageCode ?: "en")
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = OnboardingUiState(),
         )
+
+    /**
+     * Welcome-step language pick: persists the choice together with its
+     * digit/date conventions (Persian → Persian digits + Jalali dates,
+     * English → Latin digits + Gregorian dates). The screen applies the
+     * per-app locale itself, mirroring the Settings language chips.
+     */
+    fun onLanguagePicked(code: String) {
+        viewModelScope.launch {
+            settingsRepository.update {
+                it.copy(
+                    languageCode = code,
+                    persianDigits = code == "fa",
+                    jalaliDates = code == "fa",
+                )
+            }
+        }
+    }
 
     fun onDestinationPicked(uriString: String, name: String) {
         viewModelScope.launch {

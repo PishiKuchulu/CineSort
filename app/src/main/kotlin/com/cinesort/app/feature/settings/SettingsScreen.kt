@@ -183,9 +183,18 @@ fun SettingsScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         FilterChip(
-                            selected = (settings.languageCode ?: "fa") == "fa",
+                            selected = (settings.languageCode ?: "en") == "fa",
                             onClick = {
-                                viewModel.update { it.copy(languageCode = "fa") }
+                                // Language pick also sets its digit/date
+                                // conventions; the toggles below can still
+                                // override them afterwards.
+                                viewModel.update {
+                                    it.copy(
+                                        languageCode = "fa",
+                                        persianDigits = true,
+                                        jalaliDates = true,
+                                    )
+                                }
                                 AppCompatDelegate.setApplicationLocales(
                                     LocaleListCompat.forLanguageTags("fa"),
                                 )
@@ -193,9 +202,15 @@ fun SettingsScreen(
                             label = { Text(stringResource(R.string.settings_language_fa)) },
                         )
                         FilterChip(
-                            selected = settings.languageCode == "en",
+                            selected = (settings.languageCode ?: "en") == "en",
                             onClick = {
-                                viewModel.update { it.copy(languageCode = "en") }
+                                viewModel.update {
+                                    it.copy(
+                                        languageCode = "en",
+                                        persianDigits = false,
+                                        jalaliDates = false,
+                                    )
+                                }
                                 AppCompatDelegate.setApplicationLocales(
                                     LocaleListCompat.forLanguageTags("en"),
                                 )
