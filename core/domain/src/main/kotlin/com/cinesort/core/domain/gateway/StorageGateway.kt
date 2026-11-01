@@ -50,4 +50,13 @@ interface StorageGateway {
     suspend fun volumeIdOf(ref: Ref): String
     suspend fun freeBytes(dir: DirRef): Long?
     suspend fun isValid(dir: DirRef): Boolean
+
+    /**
+     * Recreates [dir] (and any missing ancestors inside its tree) when it was
+     * deleted after being recorded — used by Undo when the post-run cleanup
+     * removed an emptied source folder (review M6, spec 8.5). Returns the live
+     * ref, or null when the directory cannot be recreated (e.g. its tree root
+     * itself is gone).
+     */
+    suspend fun recreateDir(dir: DirRef): DirRef?
 }

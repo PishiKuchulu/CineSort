@@ -3,7 +3,10 @@ package com.cinesort.core.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 
-/** CineSort Room database, version 1 with schema export on (spec section 12). */
+/**
+ * CineSort Room database with schema export on (spec section 12).
+ * v2: operations.sourceFileId (review H7) — see MIGRATION_1_2 in DataModule.
+ */
 @Database(
     entities = [
         SourceFolderEntity::class,
@@ -14,7 +17,7 @@ import androidx.room.RoomDatabase
         OperationEntity::class,
         ExecutionDraftEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class CineSortDatabase : RoomDatabase() {

@@ -19,6 +19,9 @@ data class OperationRecord(
     /** Original parent directory id and the file's original name. */
     val sourceParentId: String,
     val sourceParentName: String,
+    /** The file's own full id (SAF document URI), recorded at execution time so
+     *  retry drafts never reconstruct URIs from names (review H7). */
+    val sourceFileId: String = "",
     val fileName: String,
     /** Final name in the destination (differs only for the Keep-both conflict choice). */
     val finalName: String,

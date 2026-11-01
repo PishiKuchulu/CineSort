@@ -61,13 +61,58 @@ object FolderSetValidator {
 
     /** True when [child] is strictly inside [parent] in the same tree. */
     fun isInside(childId: String, parentId: String): Boolean {
-        if (childId == parentId) return false
+        // Callers pass full SAF content URIs while tests pass bare document ids
+        // (review M4): normalize both to document ids before comparing, or the
+        // segment comparison never matches real URIs.
+        val childDoc = documentIdOf(childId)
+        val parentDoc = documentIdOf(parentId)
+        if (childDoc == parentDoc) return false
         // SAF tree document ids look like "primary:Movies/Library"; compare on segments.
-        val childSegments = childId.split(':', '/').filter { it.isNotEmpty() }
-        val parentSegments = parentId.split(':', '/').filter { it.isNotEmpty() }
+        val childSegments = childDoc.split(':', '/').filter { it.isNotEmpty() }
+        val parentSegments = parentDoc.split(':', '/').filter { it.isNotEmpty() }
         if (childSegments.size <= parentSegments.size) return false
         return childSegments.subList(0, parentSegments.size) == parentSegments &&
-            childId.substringBefore(':') == parentId.substringBefore(':')
+            childDoc.substringBefore(':') == parentDoc.substringBefore(':')
+    }
+
+    /**
+     * Extracts the bare document id ("primary:Movies/Library") from a SAF URI:
+     * the segment after "/document/", or after "/tree/" for a picked root.
+     * Bare ids pass through unchanged.
+     */
+    private fun documentIdOf(id: String): String {
+        if (!id.startsWith("content://")) return id
+        val decoded = percentDecode(id)
+        val docMarker = "/document/"
+        val treeMarker = "/tree/"
+        return when {
+            decoded.contains(docMarker) -> decoded.substringAfterLast(docMarker)
+            decoded.contains(treeMarker) -> decoded.substringAfterLast(treeMarker)
+            else -> decoded
+        }
+    }
+
+    /** Percent-decodes %XX sequences (UTF-8), leaving '+' untouched. */
+    private fun percentDecode(value: String): String {
+        if (!value.contains('%')) return value
+        val out = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < value.length) {
+            val c = value[i]
+            val byte = if (c == '%' && i + 2 <= value.lastIndex) {
+                value.substring(i + 1, i + 3).toIntOrNull(16)
+            } else {
+                null
+            }
+            if (byte != null) {
+                out.write(byte)
+                i += 3
+            } else {
+                out.write(c.toString().toByteArray(Charsets.UTF_8))
+                i++
+            }
+        }
+        return out.toByteArray().decodeToString()
     }
 
     /** De-duplicates sources and drops sources nested inside another source. */

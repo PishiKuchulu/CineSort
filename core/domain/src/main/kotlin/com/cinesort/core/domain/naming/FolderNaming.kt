@@ -20,10 +20,26 @@ object NameSanitizer {
     private const val MAX_BYTES = 240
 
     /** Spec section 7.4 sanitization (without the length cap; see [limitFolderName]). */
+    // Invisible format controls stripped from names (review L5): bidi embedding /
+    // override / isolate controls and zero-width spaces can make a folder display
+    // as a different name than it is. ZWNJ/ZWJ are KEPT — Persian orthography
+    // (and emoji sequences) need them.
+    private fun isInvisibleFormat(c: Char): Boolean =
+        c == '\u200B' || // zero-width space
+            c == '\u200E' || // left-to-right mark
+            c == '\u200F' || // right-to-left mark
+            c == '\u061C' || // arabic letter mark
+            c in '\u202A'..'\u202E' || // bidi embeddings / overrides
+            c in '\u2066'..'\u2069' || // bidi isolates
+            c == '\uFEFF' // byte-order mark / zero-width no-break space
+
+    private val whitespaceRun = Regex("""\s+""")
+
     fun sanitize(raw: String): String {
         val sb = StringBuilder()
         for (c in raw) {
             when {
+                isInvisibleFormat(c) -> Unit // removed
                 c == ':' -> sb.append(" -")
                 c == '/' -> sb.append('-')
                 c == '\\' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' ||
@@ -31,7 +47,7 @@ object NameSanitizer {
                 else -> sb.append(c)
             }
         }
-        var out = sb.toString().replace(Regex("""\s+"""), " ").trim()
+        var out = sb.toString().replace(whitespaceRun, " ").trim()
         out = out.trimEnd('.', ' ')
         return Normalizer.normalize(out, Normalizer.Form.NFC)
     }
@@ -59,7 +75,13 @@ object NameSanitizer {
         var truncated = title
         while (truncated.isNotEmpty() && utf8Length(assemble(truncated, "", "")) > MAX_BYTES) {
             val cut = truncated.lastIndexOf(' ')
-            truncated = if (cut > 0) truncated.substring(0, cut) else truncated.dropLast(1)
+            truncated = if (cut > 0) {
+                truncated.substring(0, cut)
+            } else {
+                // Drop the last code point, never half of a surrogate pair (review L5).
+                val drop = if (truncated.last().isLowSurrogate() && truncated.length >= 2) 2 else 1
+                truncated.dropLast(drop)
+            }
         }
         return assemble(truncated, "", "")
     }

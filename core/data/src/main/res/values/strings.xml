@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="organize_channel_name">Organize</string>
+    <string name="organize_notification_title">CineSort — Organizing</string>
+    <string name="organize_notification_preparing">Preparing…</string>
+    <string name="organize_notification_cancel">Cancel</string>
+</resources>

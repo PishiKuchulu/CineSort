@@ -57,10 +57,29 @@ class OrganizeExecutor(
                 totalItems = runnable.size,
             ),
         )
+        // Resume hygiene (reviews H8/M5): operations left in a non-final state by
+        // an interrupted earlier attempt of this same run are closed as FAILED, so
+        // the report never shows phantom in-progress rows.
+        val runnableIds = runnable.map { it.id }.toSet()
+        journal.operationsOf(runId)
+            .filter {
+                it.itemId in runnableIds &&
+                    it.state != OperationState.DONE && it.state != OperationState.FAILED
+            }
+            .forEach {
+                journal.updateOperation(
+                    it.copy(
+                        state = OperationState.FAILED,
+                        failureReason = "interrupted before completion",
+                    ),
+                )
+            }
         val bytesTotal = runnable.sumOf { it.sizeBytes }
         var bytesDone = 0L
         var done = 0
-        var skipped = 0
+        // Items handed in but not runnable (unselected / not READY) are the
+        // report's skipped count (review L8 — it used to stay 0 forever).
+        val skipped = items.size - runnable.size
         val failed = mutableListOf<Pair<String, String>>()
         val dirCache = mutableMapOf<String, DirRef>()
 
@@ -79,14 +98,57 @@ class OrganizeExecutor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                failed += item.scanned.file.name to (e.message ?: e.javaClass.simpleName)
+                val reason = e.message ?: e.javaClass.simpleName
+                failed += item.scanned.file.name to reason
+                markItemFailed(runId, item, reason)
             } catch (e: SecurityException) {
-                failed += item.scanned.file.name to (e.message ?: e.javaClass.simpleName)
+                val reason = e.message ?: e.javaClass.simpleName
+                failed += item.scanned.file.name to reason
+                markItemFailed(runId, item, reason)
             }
         }
         journal.markRunFinished(runId, clock())
         onProgress(ExecutionProgress(runnable.size, runnable.size, null, bytesDone, bytesTotal))
         return ExecutionReport(runId, done, failed, skipped)
+    }
+
+    /**
+     * Persists an item's failure in the journal (review M5): unfinished operations
+     * become FAILED with the reason; when the failure happened before any operation
+     * row existed (e.g. ensureDirs), a FAILED row is created so the report and the
+     * history show it.
+     */
+    private suspend fun markItemFailed(runId: String, item: PlannedItem, reason: String) {
+        val ops = journal.operationsOf(runId).filter { it.itemId == item.id }
+        val unfinished = ops.filter {
+            it.state != OperationState.DONE && it.state != OperationState.FAILED
+        }
+        if (unfinished.isEmpty() && ops.none { !it.isCompanion }) {
+            journal.insertOperation(
+                OperationRecord(
+                    id = idFactory(),
+                    runId = runId,
+                    itemId = item.id,
+                    sourceParentId = item.scanned.file.parentId,
+                    sourceParentName = item.scanned.parentDir.name,
+                    sourceFileId = item.scanned.file.id,
+                    fileName = item.scanned.file.name,
+                    finalName = item.targetFileName,
+                    destinationParentId = destinationRoot.id,
+                    destinationSegments = item.targetSegments,
+                    state = OperationState.FAILED,
+                    bytesTotal = item.scanned.file.size,
+                    failureReason = reason,
+                    crossVolume = item.crossVolume,
+                ),
+            )
+        } else {
+            unfinished.forEach {
+                journal.updateOperation(
+                    it.copy(state = OperationState.FAILED, failureReason = reason),
+                )
+            }
+        }
     }
 
     private suspend fun moveOne(
@@ -104,6 +166,7 @@ class OrganizeExecutor(
             itemId = item.id,
             sourceParentId = file.parentId,
             sourceParentName = item.scanned.parentDir.name,
+            sourceFileId = file.id,
             fileName = file.name,
             finalName = finalName,
             destinationParentId = targetDir.id,

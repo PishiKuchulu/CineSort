@@ -106,18 +106,24 @@ class OrganizePlanner {
 
     fun plan(input: PlanInput): List<PlannedItem> {
         val overrideByKey = input.overrides.associateBy { it.normalizedKey }
-        val staged = input.items.map { stagedItem(it, input, overrideByKey) }
+        val staged = unifyFolderNames(
+            input.items.map { stagedItem(it, input, overrideByKey) },
+        )
 
         // Conflict pass: duplicate target file paths among planned items.
-        val targetCounts = staged.filter { it.status != PlannedStatus.SKIPPED }
-            .groupingBy { it.targetPath }.eachCount()
+        // Needs-review items have no real target (review M1): they never conflict
+        // with each other and are never resolved into a destination-root move.
+        val targetCounts = staged.filter {
+            it.status != PlannedStatus.SKIPPED && it.status != PlannedStatus.NEEDS_REVIEW
+        }.groupingBy { it.targetPath }.eachCount()
         val allTargets = staged.map { it.targetPath }.toSet()
         val handedOut = mutableSetOf<String>()
 
         return staged.map { item ->
             if (item.status == PlannedStatus.SKIPPED ||
                 item.status == PlannedStatus.ALREADY_ORGANIZED ||
-                item.status == PlannedStatus.RECENTLY_MODIFIED
+                item.status == PlannedStatus.RECENTLY_MODIFIED ||
+                item.status == PlannedStatus.NEEDS_REVIEW
             ) {
                 return@map item
             }
@@ -129,11 +135,70 @@ class OrganizePlanner {
             } else {
                 item
             }
+            // Keep-both among source duplicates only (review M2): the first item
+            // keeps the plain name; only later ones are suffixed.
+            if (input.conflictChoices[item.id] == ConflictChoice.KEEP_BOTH &&
+                duplicated && !existsInDestination && item.targetPath !in handedOut
+            ) {
+                handedOut += item.targetPath
+                return@map withContext
+            }
             val resolved = resolveConflict(withContext, input, existsInDestination, allTargets, handedOut)
             if (resolved.status == PlannedStatus.READY && resolved.targetFileName != item.targetFileName) {
                 handedOut += resolved.targetPath
             }
             resolved
+        }
+    }
+
+    /**
+     * One folder per work within a plan (review M3): items whose titles differ
+     * only in punctuation/casing ("Spider-Man" vs "Spider.Man") share a normalized
+     * key, so the first item's folder name becomes canonical for the group.
+     */
+    private fun unifyFolderNames(items: List<PlannedItem>): List<PlannedItem> {
+        val canonical = mutableMapOf<String, String>()
+        return items.map { item ->
+            if (item.targetSegments.size < 2) return@map item
+            val title: String
+            val year: Int?
+            when (val e = item.effective) {
+                is ParseResult.Movie -> {
+                    title = e.title
+                    year = e.year
+                }
+                is ParseResult.Episode -> {
+                    title = e.seriesTitle
+                    year = e.seriesYearHint
+                }
+                else -> return@map item
+            }
+            val key = item.targetSegments[0] + "|" + NormalizedKey.of(title) + "|" +
+                (year?.toString() ?: "")
+            val folder = item.targetSegments[1]
+            val existing = canonical.putIfAbsent(key, folder)
+            if (existing == null || existing == folder) {
+                item
+            } else {
+                item.copy(
+                    targetSegments = listOf(item.targetSegments[0], existing) +
+                        item.targetSegments.drop(2),
+                )
+            }
+        }
+    }
+
+    /** Renames companions to the suffixed base of a keep-both rename (review M2). */
+    private fun renameCompanions(item: PlannedItem, candidate: String): List<FileRef> {
+        val base = item.scanned.file.name.substringBeforeLast('.', "")
+        if (base.isEmpty()) return item.companions
+        val newBase = candidate.substringBeforeLast('.', "")
+        return item.companions.map { companion ->
+            if (companion.name.startsWith("$base.")) {
+                companion.copy(name = newBase + companion.name.substring(base.length))
+            } else {
+                companion
+            }
         }
     }
 
@@ -165,6 +230,9 @@ class OrganizePlanner {
                 if (existsInDestination || candidate != item.scanned.file.name) {
                     item.copy(
                         targetFileName = candidate,
+                        // Companions follow the main file's new base name (review M2),
+                        // so subtitles stay attached to the renamed video.
+                        companions = renameCompanions(item, candidate),
                         status = PlannedStatus.READY,
                         selected = true,
                         warnings = item.warnings + "conflict: kept both as $candidate",
@@ -377,6 +445,9 @@ class OrganizePlanner {
             .map { it.split('/') }
             .filter { it.size == 2 && it[0] == FolderNamer.MOVIE_ROOT }
             .map { it[1] }
+            // Deterministic pick (review M3): the snapshot is a Set, so without
+            // sorting the "first" match would be arbitrary when the year is unknown.
+            .sorted()
             .firstOrNull { folderName ->
                 if (!ExistingFolderMatcher.matches(folderName, titleKey)) {
                     false

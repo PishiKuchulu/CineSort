@@ -346,6 +346,86 @@ class DomainAcceptanceTest {
     }
 
     @Test
+    fun undoRecreatesDeletedSourceFolder() = runTest {
+        // Review M6 regression: the post-run cleanup can delete the emptied
+        // source folder; undo must recreate it instead of failing.
+        val gateway = InMemoryStorageGateway()
+        gateway.mkdirs("primary:/Library")
+        val destRoot = DirRef("primary:/Library", "Library")
+        val src = scanned(gateway, "primary:/Downloads/Alpha.2020.1080p.WEB-DL.mkv")
+        val planned = planFor(listOf(src))
+        val journal = InMemoryJournalStore()
+        val executor = OrganizeExecutor(gateway, journal, destRoot, clock = { 42L })
+        executor.execute("run-1", planned)
+        gateway.delete(DirRef("primary:/Downloads", "Downloads"))
+        assertTrue(!gateway.exists("primary:/Downloads"))
+
+        val undo = UndoExecutor(gateway, journal, destRoot).undo("run-1")
+        assertEquals(1, undo.movedBack)
+        assertTrue(undo.problems.isEmpty(), undo.problems.toString())
+        assertTrue(gateway.exists("primary:/Downloads/Alpha.2020.1080p.WEB-DL.mkv"))
+    }
+
+    @Test
+    fun needsReviewItemsNeverConflictWithEachOther() {
+        // Review M1 regression: unrecognized files share the empty target path;
+        // they must stay NEEDS_REVIEW, not bogus-conflict with each other.
+        val gateway = InMemoryStorageGateway()
+        val a = scanned(gateway, "primary:/Downloads/qwerty12345.mkv")
+        val b = scanned(gateway, "primary:/Downloads/asdfgh98765.mkv")
+        val planned = planFor(listOf(a, b))
+        assertTrue(
+            planned.all { it.status == PlannedStatus.NEEDS_REVIEW },
+            planned.map { it.status }.toString(),
+        )
+    }
+
+    @Test
+    fun reportCountsSkippedItems() = runTest {
+        // Review L8 regression: unselected items count as skipped in the report.
+        val gateway = InMemoryStorageGateway()
+        gateway.mkdirs("primary:/Library")
+        val destRoot = DirRef("primary:/Library", "Library")
+        val a = scanned(gateway, "primary:/Downloads/Alpha.2020.1080p.WEB-DL.mkv")
+        val b = scanned(gateway, "primary:/Downloads/Beta.2021.1080p.WEB-DL.mkv")
+        val planned = planFor(listOf(a, b)).mapIndexed { index, item ->
+            if (index == 0) item.copy(selected = false) else item
+        }
+        val journal = InMemoryJournalStore()
+        val executor = OrganizeExecutor(gateway, journal, destRoot, clock = { 42L })
+        val report = executor.execute("run-1", planned)
+        assertEquals(1, report.done)
+        assertEquals(1, report.skipped)
+    }
+
+    @Test
+    fun undoRemovesAllSameDepthCreatedDirs() = runTest {
+        // Review H1 regression: several created folders share the same depth
+        // ("Movie/<Title>" for each movie). A depth-only TreeSet comparator used
+        // to keep just one of them, leaving the rest behind after undo.
+        val gateway = InMemoryStorageGateway()
+        gateway.mkdirs("primary:/Library")
+        val destRoot = DirRef("primary:/Library", "Library")
+        val srcA = scanned(gateway, "primary:/Downloads/Alpha.2020.1080p.WEB-DL.mkv")
+        val srcB = scanned(gateway, "primary:/Downloads/Beta.2021.1080p.WEB-DL.mkv")
+        val planned = planFor(listOf(srcA, srcB))
+        assertTrue(planned.all { it.status == PlannedStatus.READY }, planned.toString())
+
+        val journal = InMemoryJournalStore()
+        val executor = OrganizeExecutor(gateway, journal, destRoot, clock = { 42L })
+        val report = executor.execute("run-1", planned)
+        assertEquals(2, report.done)
+        assertTrue(gateway.exists("primary:/Library/Movie/Alpha (2020)"))
+        assertTrue(gateway.exists("primary:/Library/Movie/Beta (2021)"))
+
+        val undo = UndoExecutor(gateway, journal, destRoot).undo("run-1")
+        assertEquals(2, undo.movedBack)
+        assertTrue(undo.problems.isEmpty(), undo.problems.toString())
+        assertTrue(!gateway.exists("primary:/Library/Movie/Alpha (2020)"))
+        assertTrue(!gateway.exists("primary:/Library/Movie/Beta (2021)"))
+    }
+
+    @Test
     fun scanExcludesDestinationTree() = runTest {
         val gateway = InMemoryStorageGateway()
         gateway.addFile("primary:/Downloads/a/Film.2020.1080p.mkv", size = 5, lastModified = 0)

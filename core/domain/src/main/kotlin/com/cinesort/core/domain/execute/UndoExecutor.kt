@@ -30,7 +30,12 @@ class UndoExecutor(
         if (run.undone) return UndoReport(runId, 0, listOf("run already undone"), 0)
         val ops = journal.operationsOf(runId).filter { it.state == OperationState.DONE }
         val problems = mutableListOf<String>()
-        val createdDirs = sortedSetOf<String>(compareByDescending { it.count { c -> c == '/' } })
+        // Deepest first; the path tiebreak matters (review H1): a depth-only
+        // comparator makes TreeSet treat distinct same-depth paths as duplicates
+        // and silently drop all but one of them.
+        val createdDirs = sortedSetOf<String>(
+            compareByDescending<String> { it.count { c -> c == '/' } }.thenBy { it },
+        )
 
         // Resolve destination dirs per operation from its segments.
         val executor = OrganizeExecutor(gateway, journal, destinationRoot)
@@ -95,21 +100,28 @@ class UndoExecutor(
         problems: MutableList<String>,
     ): Boolean {
         val originalParent = DirRef(op.sourceParentId, op.sourceParentName)
-        if (!gateway.isValid(originalParent)) {
+        // The post-run cleanup may have removed the emptied folder (review M6);
+        // spec 8.5 recreates missing parents instead of failing the undo.
+        val liveParent = if (gateway.isValid(originalParent)) {
+            originalParent
+        } else {
+            gateway.recreateDir(originalParent)
+        }
+        if (liveParent == null) {
             problems += "${op.finalName}: original folder is gone"
             return false
         }
-        val nameTaken = gateway.listChildren(originalParent)
+        val nameTaken = gateway.listChildren(liveParent)
             .any { !it.isDirectory && it.ref.name == op.fileName }
         if (nameTaken) {
             problems += "${op.finalName}: original name is occupied"
             return false
         }
-        val sameVolume = gateway.volumeIdOf(file) == gateway.volumeIdOf(originalParent)
+        val sameVolume = gateway.volumeIdOf(file) == gateway.volumeIdOf(liveParent)
         if (sameVolume && op.finalName == op.fileName) {
-            gateway.move(file, currentDir, originalParent)
+            gateway.move(file, currentDir, liveParent)
         } else {
-            gateway.copyVerified(file, originalParent, targetName = op.fileName)
+            gateway.copyVerified(file, liveParent, targetName = op.fileName)
             gateway.delete(file)
         }
         return true

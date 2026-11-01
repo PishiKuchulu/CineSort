@@ -263,4 +263,6 @@ class InMemoryStorageGateway : StorageGateway {
     override suspend fun freeBytes(dir: DirRef): Long? = freeSpace[dir.id.substringBefore(':')]
 
     override suspend fun isValid(dir: DirRef): Boolean = resolve(dir.id)?.isDirectory == true
+
+    override suspend fun recreateDir(dir: DirRef): DirRef = mkdirs(dir.id)
 }

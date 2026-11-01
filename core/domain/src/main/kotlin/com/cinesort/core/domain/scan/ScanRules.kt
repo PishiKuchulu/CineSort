@@ -53,16 +53,20 @@ object ScanRules {
             !isVideo && !isCompanion -> ScanDisposition.IGNORED_EXTENSION
             isVideo && settings.ignoreSamples && size < ScanSettings.SAMPLE_SIZE_LIMIT &&
                 hasSampleToken(name) -> ScanDisposition.IGNORED_SAMPLE
-            isVideo && ageMillis > 0 && now - lastModified < ageMillis ->
+            // A future timestamp (clock skew on the source device) must not pin
+            // the file as "recently modified" forever (review L3).
+            isVideo && ageMillis > 0 && lastModified <= now && now - lastModified < ageMillis ->
                 ScanDisposition.RECENTLY_MODIFIED
             isVideo -> ScanDisposition.VIDEO
             else -> ScanDisposition.COMPANION_CANDIDATE
         }
     }
 
+    private val tokenSeparatorRegex = Regex("""[\s._\-()\[\]]+""")
+
     /** A `sample` token delimited by separators — not a substring of a longer word. */
     fun hasSampleToken(name: String): Boolean {
-        val tokens = name.lowercase(Locale.ROOT).split(Regex("""[\s._\-()\[\]]+"""))
+        val tokens = name.lowercase(Locale.ROOT).split(tokenSeparatorRegex)
         return tokens.any { it == "sample" }
     }
 

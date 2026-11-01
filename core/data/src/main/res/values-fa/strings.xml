@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="organize_channel_name">مرتب‌سازی</string>
+    <string name="organize_notification_title">سین‌سورت — در حال مرتب‌سازی</string>
+    <string name="organize_notification_preparing">در حال آماده‌سازی…</string>
+    <string name="organize_notification_cancel">لغو</string>
+</resources>
