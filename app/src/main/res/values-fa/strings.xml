@@ -63,6 +63,7 @@
     <string name="sources_pick_destination">انتخاب پوشه‌ی مقصد</string>
     <string name="sources_roots_result">پوشه‌های کتابخانه — ساخته شد: %1$s · از قبل بود: %2$s</string>
     <string name="sources_roots_none">پوشه‌های کتابخانه آماده‌اند.</string>
+    <string name="roots_prepare_error">ساخت پوشه‌های کتابخانه ناموفق بود: %1$s</string>
     <string name="sources_picker_unavailable">انتخاب‌گر پوشه روی این دستگاه در دسترس نیست.</string>
 
     <!-- History -->
