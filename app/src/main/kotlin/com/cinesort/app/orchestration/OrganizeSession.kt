@@ -50,6 +50,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -59,7 +61,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 
 /** Pipeline phase of the shared scan → plan → run session. */
@@ -119,6 +126,7 @@ class OrganizeSession @Inject constructor(
     private val draftRepository: RunDraftRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val replanMutex = Mutex()
     private val planner = OrganizePlanner()
 
     private val _state = MutableStateFlow(SessionState())
@@ -137,6 +145,7 @@ class OrganizeSession @Inject constructor(
     /** Starts a full scan → parse → snapshot → enrich → plan cycle. No-op while busy. */
     fun startScan() {
         if (scanJob?.isActive == true) return
+        replanJob?.cancel()
         scanJob = scope.launch {
             _state.value = SessionState(phase = SessionPhase.SCANNING, stageIndex = 0)
             selectionOverrides.clear()
@@ -291,19 +300,29 @@ class OrganizeSession @Inject constructor(
     /**
      * Walks the destination tree with bounded depth: library roots, their title
      * folders, season folders, and the files inside title/season folders.
+     *
+     * Folder listings run in parallel with bounded concurrency (review M10): each
+     * SAF listChildren is a Binder round trip, so a sequential walk over a large
+     * library (thousands of title folders) took minutes.
      */
     private suspend fun buildDestinationSnapshot(destination: DirRef): DestinationSnapshot {
-        val folders = mutableSetOf<String>()
-        val files = mutableSetOf<String>()
-        val fileDetails = mutableMapOf<String, com.cinesort.core.domain.planner.ExistingFileInfo>()
+        val folders = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        val files = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        val fileDetails = java.util.Collections.synchronizedMap(
+            mutableMapOf<String, com.cinesort.core.domain.planner.ExistingFileInfo>(),
+        )
+        val gate = Semaphore(SNAPSHOT_CONCURRENCY)
 
         suspend fun walk(dir: DirRef, prefix: String, depth: Int) {
-            val children = try {
-                gateway.listChildren(dir)
-            } catch (e: Exception) {
-                Timber.w(e, "destination snapshot walk failed at %s", dir.name)
-                return
+            val children = gate.withPermit {
+                try {
+                    gateway.listChildren(dir)
+                } catch (e: Exception) {
+                    Timber.w(e, "destination snapshot walk failed at %s", dir.name)
+                    return
+                }
             }
+            val subdirs = mutableListOf<Pair<DirRef, String>>()
             for (child: EntryInfo in children) {
                 val relative = if (prefix.isEmpty()) {
                     child.ref.name
@@ -314,7 +333,7 @@ class OrganizeSession @Inject constructor(
                     folders += relative
                     val childDir = child.ref as? DirRef
                     if (childDir != null && depth < MAX_SNAPSHOT_DEPTH) {
-                        walk(childDir, relative, depth + 1)
+                        subdirs += childDir to relative
                     }
                 } else {
                     files += relative
@@ -324,12 +343,19 @@ class OrganizeSession @Inject constructor(
                     )
                 }
             }
+            if (subdirs.isNotEmpty()) {
+                coroutineScope {
+                    subdirs.map { (childDir, relative) ->
+                        async { walk(childDir, relative, depth + 1) }
+                    }.awaitAll()
+                }
+            }
         }
         walk(destination, prefix = "", depth = 0)
         return DestinationSnapshot(
-            folders = folders,
-            files = files,
-            fileDetails = fileDetails,
+            folders = folders.toSet(),
+            files = files.toSet(),
+            fileDetails = fileDetails.toMap(),
             volume = gateway.volumeIdOf(destination),
             freeBytes = runCatching { gateway.freeBytes(destination) }.getOrNull(),
         )
@@ -461,8 +487,19 @@ class OrganizeSession @Inject constructor(
         }
     }
 
+    private var replanJob: Job? = null
+
+    /**
+     * Replans are serialized and latest-wins (review M9): the session scope is
+     * multi-threaded, so unguarded launches let a slower older replan overwrite a
+     * newer plan. Cancelling the previous job plus the mutex keeps publication
+     * order aligned with request order.
+     */
     fun requestReplan() {
-        scope.launch { replanInternal() }
+        replanJob?.cancel()
+        replanJob = scope.launch {
+            replanMutex.withLock { replanInternal() }
+        }
     }
 
     private suspend fun replanInternal() {
@@ -749,9 +786,24 @@ class OrganizeSession @Inject constructor(
     }
 
     fun setGroupSelected(targetFolderPath: String, selected: Boolean) {
-        _state.value.plan
+        // One pass over the plan (review L9): calling setSelected per item made
+        // group toggles O(group x plan) in state copies.
+        val memberIds = _state.value.plan
             .filter { it.targetFolderPath == targetFolderPath }
-            .forEach { setSelected(it.id, selected) }
+            .map { it.id }
+            .toSet()
+        memberIds.forEach { selectionOverrides[it] = selected }
+        _state.update { state ->
+            state.copy(
+                plan = state.plan.map { item ->
+                    if (item.id in memberIds && item.status == PlannedStatus.READY) {
+                        item.copy(selected = selected)
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
     }
 
     fun selectAllReady() {
@@ -891,5 +943,6 @@ class OrganizeSession @Inject constructor(
         const val ERROR_NO_SETUP = "no-setup"
         const val WARNING_METADATA_HELD = "metadata unavailable — held"
         private const val MAX_SNAPSHOT_DEPTH = 3
+        private const val SNAPSHOT_CONCURRENCY = 8
     }
 }
