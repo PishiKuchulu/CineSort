@@ -12,6 +12,11 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cinesort.core.data.settings.AppSettings
+import com.cinesort.core.data.settings.ConflictDefault
+import com.cinesort.core.data.settings.MetadataUnavailableBehavior
+import com.cinesort.core.data.settings.RatingSourcePreference
+import com.cinesort.core.data.settings.ThemeMode
+import com.cinesort.core.parser.TitleCaseMode
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -53,7 +58,7 @@ class SettingsRepository(context: Context) {
         val defaults = AppSettings()
         return AppSettings(
             languageCode = this[Keys.LANGUAGE_CODE]?.takeIf { it.isNotEmpty() },
-            themeMode = enumValueOrNull(this[Keys.THEME_MODE]) ?: defaults.themeMode,
+            themeMode = enumValueOrNull<ThemeMode>(this[Keys.THEME_MODE]) ?: defaults.themeMode,
             dynamicColor = this[Keys.DYNAMIC_COLOR] ?: defaults.dynamicColor,
             persianDigits = this[Keys.PERSIAN_DIGITS] ?: defaults.persianDigits,
             jalaliDates = this[Keys.JALALI_DATES] ?: defaults.jalaliDates,
@@ -64,17 +69,19 @@ class SettingsRepository(context: Context) {
             seriesAddGenres = this[Keys.SERIES_ADD_GENRES] ?: defaults.seriesAddGenres,
             seriesAddRating = this[Keys.SERIES_ADD_RATING] ?: defaults.seriesAddRating,
             maxGenres = this[Keys.MAX_GENRES] ?: defaults.maxGenres,
-            titleCaseMode = enumValueOrNull(this[Keys.TITLE_CASE_MODE]) ?: defaults.titleCaseMode,
+            titleCaseMode = enumValueOrNull<TitleCaseMode>(this[Keys.TITLE_CASE_MODE]) ?: defaults.titleCaseMode,
             fillMissingYear = this[Keys.FILL_MISSING_YEAR] ?: defaults.fillMissingYear,
-            ratingSource = enumValueOrNull(this[Keys.RATING_SOURCE]) ?: defaults.ratingSource,
-            metadataUnavailable = enumValueOrNull(this[Keys.METADATA_UNAVAILABLE])
+            ratingSource = enumValueOrNull<RatingSourcePreference>(this[Keys.RATING_SOURCE])
+                ?: defaults.ratingSource,
+            metadataUnavailable = enumValueOrNull<MetadataUnavailableBehavior>(this[Keys.METADATA_UNAVAILABLE])
                 ?: defaults.metadataUnavailable,
             genreNormalization = this[Keys.GENRE_NORMALIZATION] ?: defaults.genreNormalization,
             skipPreview = this[Keys.SKIP_PREVIEW] ?: defaults.skipPreview,
             minFileAgeSeconds = this[Keys.MIN_FILE_AGE_SECONDS] ?: defaults.minFileAgeSeconds,
             ignoreSamples = this[Keys.IGNORE_SAMPLES] ?: defaults.ignoreSamples,
             moveCompanions = this[Keys.MOVE_COMPANIONS] ?: defaults.moveCompanions,
-            conflictDefault = enumValueOrNull(this[Keys.CONFLICT_DEFAULT]) ?: defaults.conflictDefault,
+            conflictDefault = enumValueOrNull<ConflictDefault>(this[Keys.CONFLICT_DEFAULT])
+                ?: defaults.conflictDefault,
             removeEmptyFolders = this[Keys.REMOVE_EMPTY_FOLDERS] ?: defaults.removeEmptyFolders,
             treatJunkAsEmpty = this[Keys.TREAT_JUNK_AS_EMPTY] ?: defaults.treatJunkAsEmpty,
             videoExtensions = this[Keys.VIDEO_EXTENSIONS] ?: defaults.videoExtensions,

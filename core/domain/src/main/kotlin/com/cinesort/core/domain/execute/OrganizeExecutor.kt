@@ -9,6 +9,7 @@ import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
 import com.cinesort.core.domain.planner.PlannedItem
 import com.cinesort.core.domain.planner.PlannedStatus
+import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
@@ -77,7 +78,9 @@ class OrganizeExecutor(
                 bytesDone += item.sizeBytes
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: IOException) {
+                failed += item.scanned.file.name to (e.message ?: e.javaClass.simpleName)
+            } catch (e: SecurityException) {
                 failed += item.scanned.file.name to (e.message ?: e.javaClass.simpleName)
             }
         }

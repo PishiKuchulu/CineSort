@@ -461,7 +461,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
             val documentFile = if (DocumentsContract.isTreeUri(uri)) {
                 DocumentFile.fromTreeUri(appContext, uri)
             } else {
-                DocumentFile.fromDocumentUri(appContext, uri)
+                DocumentFile.fromSingleUri(appContext, uri)
             }
             documentFile?.exists() == true
         } catch (e: Exception) {

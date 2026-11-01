@@ -41,27 +41,23 @@ object ScanRules {
         now: Long,
         settings: ScanSettings,
     ): ScanDisposition {
-        if (name.startsWith(".")) return ScanDisposition.IGNORED_HIDDEN
         val lower = name.lowercase(Locale.ROOT)
-        if (lower.endsWith(".cinesort-part")) return ScanDisposition.IGNORED_TEMP
         val ext = lower.substringAfterLast('.', "")
-        if (ext in ScanSettings.TEMP_EXTENSIONS) return ScanDisposition.IGNORED_TEMP
         val isVideo = ext in settings.videoExtensions
         val isCompanion = ext in settings.companionExtensions
-        if (!isVideo && !isCompanion) return ScanDisposition.IGNORED_EXTENSION
-        if (isVideo) {
-            if (settings.ignoreSamples && size < ScanSettings.SAMPLE_SIZE_LIMIT &&
-                hasSampleToken(name)
-            ) {
-                return ScanDisposition.IGNORED_SAMPLE
-            }
-            val ageMillis = settings.minFileAgeSeconds * 1000
-            if (ageMillis > 0 && now - lastModified < ageMillis) {
-                return ScanDisposition.RECENTLY_MODIFIED
-            }
-            return ScanDisposition.VIDEO
+        val ageMillis = settings.minFileAgeSeconds * 1000
+        return when {
+            name.startsWith(".") -> ScanDisposition.IGNORED_HIDDEN
+            lower.endsWith(".cinesort-part") || ext in ScanSettings.TEMP_EXTENSIONS ->
+                ScanDisposition.IGNORED_TEMP
+            !isVideo && !isCompanion -> ScanDisposition.IGNORED_EXTENSION
+            isVideo && settings.ignoreSamples && size < ScanSettings.SAMPLE_SIZE_LIMIT &&
+                hasSampleToken(name) -> ScanDisposition.IGNORED_SAMPLE
+            isVideo && ageMillis > 0 && now - lastModified < ageMillis ->
+                ScanDisposition.RECENTLY_MODIFIED
+            isVideo -> ScanDisposition.VIDEO
+            else -> ScanDisposition.COMPANION_CANDIDATE
         }
-        return ScanDisposition.COMPANION_CANDIDATE
     }
 
     /** A `sample` token delimited by separators — not a substring of a longer word. */
