@@ -14,8 +14,10 @@ import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.IOException
 import java.security.GeneralSecurityException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import timber.log.Timber
 
@@ -80,6 +82,9 @@ class SecretStore(context: Context) {
                 }
             }
             .map { prefs -> decrypt(prefs[prefKey]) }
+            // Decryption (Tink + keystore) must not run on the collector's
+            // dispatcher — ViewModels collect these on Main (review M8).
+            .flowOn(Dispatchers.IO)
 
     private fun decrypt(encoded: String?): String {
         if (encoded.isNullOrBlank()) return ""

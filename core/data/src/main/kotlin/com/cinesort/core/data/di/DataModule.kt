@@ -2,6 +2,8 @@ package com.cinesort.core.data.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.cinesort.core.data.db.CineSortDatabase
 import com.cinesort.core.data.db.DestinationDao
 import com.cinesort.core.data.db.ExecutionDraftDao
@@ -25,6 +27,22 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
+/** v1 -> v2: operations gain the recorded source file id (review H7), and
+ *  source folders gain a unique uri index (review L7; duplicates merged first). */
+val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE operations ADD COLUMN sourceFileId TEXT NOT NULL DEFAULT ''")
+        db.execSQL(
+            "DELETE FROM source_folders WHERE id NOT IN " +
+                "(SELECT MIN(id) FROM source_folders GROUP BY uriString)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS index_source_folders_uriString " +
+                "ON source_folders (uriString)",
+        )
+    }
+}
+
 /** Hilt wiring for the data layer (spec sections 4, 12). */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -34,6 +52,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CineSortDatabase =
         Room.databaseBuilder(context, CineSortDatabase::class.java, CineSortDatabase.DATABASE_NAME)
+            .addMigrations(MIGRATION_1_2)
             .build()
 
     @Provides
@@ -79,7 +98,8 @@ object DataModule {
         sourceFolderDao: SourceFolderDao,
         destinationDao: DestinationDao,
         titleOverrideDao: TitleOverrideDao,
-    ): LibraryRepository = LibraryRepository(sourceFolderDao, destinationDao, titleOverrideDao)
+        @ApplicationContext context: Context,
+    ): LibraryRepository = LibraryRepository(sourceFolderDao, destinationDao, titleOverrideDao, context)
 
     @Provides
     @Singleton

@@ -8,8 +8,6 @@ complexity:
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10
-  ReturnCount:
-    max: 4
   TooManyFunctions:
     active: false
   CyclomaticComplexMethod:
@@ -18,6 +16,8 @@ complexity:
     threshold: 800
 
 style:
+  ReturnCount:
+    max: 4
   MagicNumber:
     active: false
   MaxLineLength:

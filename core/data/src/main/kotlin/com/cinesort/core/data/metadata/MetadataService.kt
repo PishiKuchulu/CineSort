@@ -167,7 +167,7 @@ class MetadataService(
     suspend fun testTmdbKey(key: String): Result<String> {
         if (key.isBlank()) return Result.failure(IllegalArgumentException("TMDB key is empty"))
         return try {
-            val api = buildTmdbApi(ApiKeys(tmdbKey = key.trim()))
+            val api = tmdbApi(ApiKeys(tmdbKey = key.trim()))
             api.searchMovie(query = "Inception", year = 2010)
             Result.success("TMDB key is valid")
         } catch (e: HttpException) {
@@ -187,7 +187,7 @@ class MetadataService(
     suspend fun testOmdbKey(key: String): Result<String> {
         if (key.isBlank()) return Result.failure(IllegalArgumentException("OMDb key is empty"))
         return try {
-            val api = buildOmdbApi()
+            val api = omdbApi()
             val response = api.byTitle(apiKey = key.trim(), title = "Inception", year = 2010, type = "movie")
             when {
                 response.isSuccess -> Result.success("OMDb key is valid")
@@ -244,7 +244,7 @@ class MetadataService(
         year: Int?,
         keys: ApiKeys,
     ): LookupResult {
-        val api = buildTmdbApi(keys)
+        val api = tmdbApi(keys)
         var search = withRetries {
             if (type == ItemType.MOVIE) api.searchMovie(title, year) else api.searchTv(title, year)
         }
@@ -298,7 +298,7 @@ class MetadataService(
         val wantImdbOnly = settings?.ratingSource == RatingSourcePreference.IMDB_ONLY
         if (keys.hasOmdb && imdbId != null && !omdbExhausted()) {
             try {
-                val omdb = withRetries { buildOmdbApi().byId(apiKey = keys.omdbKey.orEmpty(), imdbId = imdbId) }
+                val omdb = withRetries { omdbApi().byId(apiKey = keys.omdbKey.orEmpty(), imdbId = imdbId) }
                 checkOmdbError(omdb.error)
                 omdb.ratingValue?.let {
                     rating = it
@@ -344,7 +344,7 @@ class MetadataService(
         keys: ApiKeys,
     ): LookupResult {
         if (omdbExhausted()) return LookupResult.Unavailable
-        val api = buildOmdbApi()
+        val api = omdbApi()
         val omdbType = if (type == ItemType.MOVIE) "movie" else "series"
         val key = keys.omdbKey.orEmpty()
         try {
@@ -407,7 +407,7 @@ class MetadataService(
         year: Int?,
         keys: ApiKeys,
     ): List<MetadataCandidate> {
-        val api = buildTmdbApi(keys)
+        val api = tmdbApi(keys)
         val search = withRetries {
             if (type == ItemType.MOVIE) api.searchMovie(title, year) else api.searchTv(title, year)
         }
@@ -429,7 +429,7 @@ class MetadataService(
         keys: ApiKeys,
     ): List<MetadataCandidate> {
         if (omdbExhausted()) return emptyList()
-        val api = buildOmdbApi()
+        val api = omdbApi()
         val omdbType = if (type == ItemType.MOVIE) "movie" else "series"
         val search = try {
             val result = withRetries {
@@ -620,6 +620,24 @@ class MetadataService(
         logger.redactHeader("Authorization")
         return logger
     }
+
+    // API clients are cached (review M7): building an OkHttpClient + Retrofit per
+    // call — even per retry — threw away connection pools and churned threads.
+    @Volatile
+    private var tmdbApiCache: Pair<String, TmdbApi>? = null
+
+    @Volatile
+    private var omdbApiCache: OmdbApi? = null
+
+    private fun tmdbApi(keys: ApiKeys): TmdbApi {
+        val key = keys.tmdbKey.orEmpty()
+        val cached = tmdbApiCache
+        if (cached != null && cached.first == key) return cached.second
+        return buildTmdbApi(keys).also { tmdbApiCache = key to it }
+    }
+
+    private fun omdbApi(): OmdbApi =
+        omdbApiCache ?: buildOmdbApi().also { omdbApiCache = it }
 
     private fun buildOkHttp(vararg interceptors: Interceptor): OkHttpClient =
         OkHttpClient.Builder()

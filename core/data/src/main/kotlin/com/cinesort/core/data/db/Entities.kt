@@ -5,7 +5,10 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /** A user-picked source tree (spec sections 5.1, 12). */
-@Entity(tableName = "source_folders")
+@Entity(
+    tableName = "source_folders",
+    indices = [Index(value = ["uriString"], unique = true)],
+)
 data class SourceFolderEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val uriString: String,
@@ -67,6 +70,8 @@ data class OperationEntity(
     val itemId: String,
     val sourceParentId: String,
     val sourceParentName: String,
+    /** The file's own full SAF document URI (review H7); empty for pre-v2 rows. */
+    val sourceFileId: String = "",
     val fileName: String,
     val finalName: String,
     val destinationParentId: String,

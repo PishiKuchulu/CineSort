@@ -8,7 +8,6 @@ import android.os.Environment
 import android.os.StatFs
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
-import androidx.documentfile.provider.DocumentFile
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.EntryInfo
@@ -25,6 +24,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
@@ -45,40 +45,21 @@ class SafStorageGateway(context: Context) : StorageGateway {
     private val resolver: ContentResolver get() = appContext.contentResolver
 
     // ------------------------------------------------------------------ uri helpers
+    // Shape-based (see SafUris): DocumentsContract.isTreeUri is true for child
+    // document URIs too, so it must never decide root-vs-document (review C1).
 
     private fun parseUri(ref: Ref): Uri = Uri.parse(ref.id)
 
-    /** Tree URI for any ref: the ref itself when it is a tree URI, else rebuilt. */
-    private fun treeUriOf(uri: Uri): Uri =
-        if (DocumentsContract.isTreeUri(uri)) {
-            uri
-        } else {
-            DocumentsContract.buildTreeDocumentUri(
-                uri.authority,
-                DocumentsContract.getTreeDocumentId(uri),
-            )
-        }
+    private fun treeUriOf(uri: Uri): Uri = SafUris.treeUriOf(uri)
 
-    /** Bare document id (e.g. `primary:Movies/Library`) for any ref URI. */
-    private fun documentIdOf(uri: Uri): String =
-        if (DocumentsContract.isTreeUri(uri)) {
-            DocumentsContract.getTreeDocumentId(uri)
-        } else {
-            DocumentsContract.getDocumentId(uri)
-        }
+    private fun documentIdOf(uri: Uri): String = SafUris.documentIdOf(uri)
 
-    /** Document URI usable with DocumentsContract create/move/delete calls. */
-    private fun documentUriOf(uri: Uri): Uri =
-        if (DocumentsContract.isTreeUri(uri)) {
-            DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
-        } else {
-            uri
-        }
+    private fun documentUriOf(uri: Uri): Uri = SafUris.documentUriOf(uri)
 
-    private fun documentUriOf(ref: Ref): Uri = documentUriOf(parseUri(ref))
+    private fun documentUriOf(ref: Ref): Uri = SafUris.documentUriOf(parseUri(ref))
 
     private fun childUri(treeUri: Uri, documentId: String): Uri =
-        DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+        SafUris.childUri(treeUri, documentId)
 
     override suspend fun volumeIdOf(ref: Ref): String =
         documentIdOf(parseUri(ref)).substringBefore(':')
@@ -272,14 +253,17 @@ class SafStorageGateway(context: Context) : StorageGateway {
                 // USER's scan settings (extensions, samples, min age) happens in the
                 // session layer via ScanRules — the gateway must not pre-filter with
                 // default settings, or user-disabled filters could never be honored.
-                val fileRef = siblingRefs.first { it.id == childDocumentUri.toString() }
+                // Siblings are a lazy view (review H4): copying an N-1 list for each
+                // of N files in a folder made scanning quadratic in memory.
+                val selfIndex = siblingRefs.indexOfFirst { it.id == childDocumentUri.toString() }
+                val fileRef = siblingRefs[selfIndex]
                 emit(
                     ScanEvent.Found(
                         ScannedFile(
                             file = fileRef,
                             parentDir = current.dir,
                             ancestors = current.ancestors,
-                            siblings = siblingRefs.filter { it.id != fileRef.id },
+                            siblings = ExcludingList(siblingRefs, selfIndex),
                             sourceVolume = rootVolume,
                         ),
                     ),
@@ -291,7 +275,9 @@ class SafStorageGateway(context: Context) : StorageGateway {
 
     // ------------------------------------------------------------------ browsing
 
-    override suspend fun listChildren(dir: DirRef): List<EntryInfo> {
+    // All blocking SAF calls run on Dispatchers.IO inside the gateway (review H2),
+    // so ViewModel callers on the main thread never do storage I/O there.
+    override suspend fun listChildren(dir: DirRef): List<EntryInfo> = withContext(Dispatchers.IO) {
         val uri = parseUri(dir)
         val treeUri = treeUriOf(uri)
         val documentId = documentIdOf(uri)
@@ -322,8 +308,8 @@ class SafStorageGateway(context: Context) : StorageGateway {
                 if (ignoreCase) entry.ref.name.equals(name, ignoreCase = true) else entry.ref.name == name
         }?.ref as? DirRef
 
-    override suspend fun createDir(parent: DirRef, name: String): DirRef {
-        findChildDir(parent, name, ignoreCase = true)?.let { return it }
+    override suspend fun createDir(parent: DirRef, name: String): DirRef = withContext(Dispatchers.IO) {
+        findChildDir(parent, name, ignoreCase = true)?.let { return@withContext it }
         val created = DocumentsContract.createDocument(
             resolver,
             documentUriOf(parent),
@@ -335,7 +321,12 @@ class SafStorageGateway(context: Context) : StorageGateway {
 
     // ------------------------------------------------------------------ move / copy
 
-    override suspend fun move(file: FileRef, fromDir: DirRef, toDir: DirRef): FileRef {
+    override suspend fun move(file: FileRef, fromDir: DirRef, toDir: DirRef): FileRef =
+        withContext(Dispatchers.IO) {
+        // Safety guard (review C1): a file ref must never be a picked tree root.
+        if (SafUris.isTreeRoot(parseUri(file))) {
+            throw IOException("refusing to move a tree root: ${file.name}")
+        }
         val sameVolume = volumeIdOf(file) == volumeIdOf(toDir)
         val fileDocumentUri = documentUriOf(file)
         val supportsMove = flagsOf(fileDocumentUri) and DocumentsContract.Document.FLAG_SUPPORTS_MOVE != 0
@@ -358,7 +349,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
         toDir: DirRef,
         targetName: String,
         onProgress: (Long) -> Unit,
-    ): FileRef {
+    ): FileRef = withContext(Dispatchers.IO) {
         // Pre-check free space when the destination volume's space is resolvable.
         val free = freeBytes(toDir)
         if (free != null && free < file.size) {
@@ -407,8 +398,11 @@ class SafStorageGateway(context: Context) : StorageGateway {
             if (copied != file.size) {
                 throw IOException("size mismatch for ${file.name}: copied $copied of ${file.size}")
             }
+            // A failed rename must fail the copy (review M13): returning the partial
+            // URI here would hand back a ref named as the target while the document
+            // is still "X.cinesort-part", and the caller deletes the source.
             val finalUri = DocumentsContract.renameDocument(resolver, partialUri, targetName)
-                ?: partialUri
+                ?: throw IOException("provider refused to rename partial file to $targetName")
             return FileRef(finalUri.toString(), targetName, file.size, file.lastModified, toDir.id)
         } catch (e: CancellationException) {
             runCatching { DocumentsContract.deleteDocument(resolver, partialUri) }
@@ -427,12 +421,16 @@ class SafStorageGateway(context: Context) : StorageGateway {
 
     // ------------------------------------------------------------------ misc
 
-    override suspend fun delete(ref: Ref) {
+    override suspend fun delete(ref: Ref): Unit = withContext(Dispatchers.IO) {
+        // Safety guard (review C1): never delete a picked tree root itself.
+        if (SafUris.isTreeRoot(parseUri(ref))) {
+            throw IOException("refusing to delete a tree root: ${ref.name}")
+        }
         val deleted = DocumentsContract.deleteDocument(resolver, documentUriOf(ref))
         if (!deleted) throw IOException("provider refused to delete: ${ref.name}")
     }
 
-    override suspend fun freeBytes(dir: DirRef): Long? {
+    override suspend fun freeBytes(dir: DirRef): Long? = withContext(Dispatchers.IO) {
         val documentId = documentIdOf(parseUri(dir))
         val volume = documentId.substringBefore(':')
         val relativePath = documentId.substringAfter(':', "")
@@ -455,19 +453,64 @@ class SafStorageGateway(context: Context) : StorageGateway {
         return null
     }
 
-    override suspend fun isValid(dir: DirRef): Boolean =
+    override suspend fun isValid(dir: DirRef): Boolean = withContext(Dispatchers.IO) {
         try {
-            val uri = parseUri(dir)
-            val documentFile = if (DocumentsContract.isTreeUri(uri)) {
-                DocumentFile.fromTreeUri(appContext, uri)
-            } else {
-                DocumentFile.fromSingleUri(appContext, uri)
-            }
-            documentFile?.exists() == true
+            // Query the ref's own document (review C1: DocumentFile.fromTreeUri on a
+            // child URI silently checks the tree root instead).
+            val docUri = documentUriOf(dir)
+            resolver.query(
+                docUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null,
+                null,
+                null,
+            )?.use { it.moveToFirst() } ?: false
         } catch (e: Exception) {
             Timber.w(e, "validity check failed for %s", dir.name)
             false
         }
+    }
+
+    override suspend fun recreateDir(dir: DirRef): DirRef? = withContext(Dispatchers.IO) {
+        try {
+            if (isValid(dir)) return@withContext dir
+            val uri = parseUri(dir)
+            val treeDocId = SafUris.treeDocumentIdOf(uri)
+            val targetDocId = documentIdOf(uri)
+            // The picked root itself is gone, or the target is outside its tree:
+            // nothing safe to recreate.
+            if (targetDocId == treeDocId) return@withContext null
+            if (!targetDocId.startsWith("$treeDocId/")) return@withContext null
+            val segments = targetDocId.removePrefix("$treeDocId/").split('/')
+            var current = DirRef(
+                SafUris.treeUriOf(uri).toString(),
+                treeDocId.substringAfterLast('/'),
+            )
+            for (segment in segments) {
+                current = findChildDir(current, segment, ignoreCase = true)
+                    ?: createDir(current, segment)
+            }
+            current
+        } catch (e: Exception) {
+            Timber.w(e, "recreate failed for %s", dir.name)
+            null
+        }
+    }
+
+    /** Lazy read-only view of [base] without the element at [excludeIndex]. */
+    private class ExcludingList<T>(
+        private val base: List<T>,
+        private val excludeIndex: Int,
+    ) : AbstractList<T>() {
+        override val size: Int get() = base.size - 1
+
+        override fun get(index: Int): T {
+            if (index < 0 || index >= size) {
+                throw IndexOutOfBoundsException("index $index, size $size")
+            }
+            return base[if (index < excludeIndex) index else index + 1]
+        }
+    }
 
     private companion object {
         const val BUFFER_SIZE = 1024 * 1024

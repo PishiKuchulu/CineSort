@@ -12,12 +12,14 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.cinesort.core.data.R
 import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.data.repository.RunDraftRepository
 import com.cinesort.core.data.repository.SettingsRepository
 import com.cinesort.core.domain.execute.OrganizeExecutor
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.journal.JournalStore
+import com.cinesort.core.domain.journal.OperationState
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
 import com.cinesort.core.domain.model.ScannedFile
@@ -61,6 +63,14 @@ class OrganizeWorker @AssistedInject constructor(
         val destination = libraryRepository.destinationOnce() ?: return Result.failure()
         val destinationRoot = DirRef(destination.uriString, destination.name)
 
+        // Companions are decoded (and stat'ed through the gateway) before the map:
+        // decodeCompanions is suspending, so it cannot run inside List.map.
+        val companionsById = HashMap<String, List<FileRef>>()
+        for (draft in drafts) {
+            companionsById[draft.id] =
+                decodeCompanions(draft.companionUris, draft.companionNames, draft.parentUri)
+        }
+
         val items = drafts.map { draft ->
             val scannedFile = FileRef(
                 id = draft.fileUri,
@@ -70,7 +80,7 @@ class OrganizeWorker @AssistedInject constructor(
                 parentId = draft.parentUri,
             )
             val parentDir = DirRef(draft.parentUri, draft.parentName)
-            val companions = decodeCompanions(draft.companionUris, draft.companionNames, draft.parentUri)
+            val companions = companionsById[draft.id].orEmpty()
             val type = runCatching { ItemType.valueOf(draft.type) }.getOrDefault(ItemType.MOVIE)
             val trace = ParseTrace(null, null, AnchorKind.NONE, listOf("restored-from-draft"))
             val effective: ParseResult = if (type == ItemType.MOVIE) {
@@ -123,13 +133,24 @@ class OrganizeWorker @AssistedInject constructor(
             )
         }
 
+        // Resume (review H8): items whose journal operations are all DONE were
+        // completed by an earlier attempt of this run before a process death —
+        // skip them instead of re-running and failing on the missing sources.
+        val opsByItem = journalStore.operationsOf(runId).groupBy { it.itemId }
+        val pendingItems = items.filter { item ->
+            val ops = opsByItem[item.id].orEmpty()
+            ops.isEmpty() || ops.any { it.state != OperationState.DONE }
+        }
+
         createNotificationChannel()
-        setForeground(createForegroundInfo(percent = 0, currentFile = null, total = items.size))
+        setForeground(
+            createForegroundInfo(percent = 0, currentFile = null, total = pendingItems.size),
+        )
 
         val executor = OrganizeExecutor(gateway, journalStore, destinationRoot)
         var lastPercent = -1
         val report = try {
-            executor.execute(runId, items) { progress ->
+            executor.execute(runId, pendingItems) { progress ->
                 val percent = if (progress.totalItems == 0) {
                     100
                 } else {
@@ -204,11 +225,15 @@ class OrganizeWorker @AssistedInject constructor(
         }
     }
 
-    private fun decodeCompanions(uris: String, names: String, parentId: String): List<FileRef> {
+    private suspend fun decodeCompanions(
+        uris: String,
+        names: String,
+        parentId: String,
+    ): List<FileRef> {
         if (uris.isEmpty()) return emptyList()
         val uriList = uris.split('\n')
         val nameList = names.split('\n')
-        return uriList.mapIndexed { index, uri ->
+        val refs = uriList.mapIndexed { index, uri ->
             FileRef(
                 id = uri,
                 name = nameList.getOrElse(index) { uri.substringAfterLast('/') },
@@ -216,6 +241,20 @@ class OrganizeWorker @AssistedInject constructor(
                 lastModified = 0,
                 parentId = parentId,
             )
+        }
+        // Drafts carry no companion sizes, and copyVerified checks the copied byte
+        // count — a size of 0 would fail every cross-volume companion (review H7).
+        // Stat the parent folder once and fill in the real sizes.
+        val parentDir = DirRef(parentId, parentId.substringAfterLast('/'))
+        val byId = try {
+            gateway.listChildren(parentDir).associateBy { it.ref.id }
+        } catch (e: Exception) {
+            Timber.w(e, "companion stat failed for %s", parentId)
+            emptyMap()
+        }
+        return refs.map { ref ->
+            val entry = byId[ref.id]
+            if (entry != null) ref.copy(size = entry.size, lastModified = entry.lastModified) else ref
         }
     }
 
@@ -225,7 +264,11 @@ class OrganizeWorker @AssistedInject constructor(
         val manager = applicationContext.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Organize", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(
+                    CHANNEL_ID,
+                    applicationContext.getString(R.string.organize_channel_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
             )
         }
     }
@@ -235,16 +278,20 @@ class OrganizeWorker @AssistedInject constructor(
         val text = when {
             currentFile != null -> "$percent% · $currentFile"
             total > 0 -> "$percent%"
-            else -> "Preparing…"
+            else -> applicationContext.getString(R.string.organize_notification_preparing)
         }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("CineSort — Organizing")
+            .setContentTitle(applicationContext.getString(R.string.organize_notification_title))
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, percent, total == 0)
-            .addAction(android.R.drawable.ic_delete, "Cancel", cancelIntent)
+            .addAction(
+                android.R.drawable.ic_delete,
+                applicationContext.getString(R.string.organize_notification_cancel),
+                cancelIntent,
+            )
             .build()
         val notificationId = id.hashCode()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

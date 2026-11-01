@@ -22,14 +22,17 @@ object TitleSimilarity {
         return maxOf(levenshtein, tokenSet)
     }
 
+    private val combiningMarksRegex = Regex("""\p{Mn}+""")
+    private val whitespaceRegex = Regex("""\s+""")
+
     /** Lowercase, NFKD, strip diacritics, keep letters/digits, single spaces. */
     fun normalize(title: String): String {
         val lowered = title.lowercase(Locale.ROOT)
         val decomposed = Normalizer.normalize(lowered, Normalizer.Form.NFKD)
-        val stripped = Regex("""\p{Mn}+""").replace(decomposed, "")
+        val stripped = combiningMarksRegex.replace(decomposed, "")
         val kept = stripped.map { c -> if (c.isLetterOrDigit()) c else ' ' }
             .joinToString("")
-        return kept.replace(Regex("""\s+"""), " ").trim()
+        return kept.replace(whitespaceRegex, " ").trim()
     }
 
     fun tokens(title: String): List<String> =
@@ -64,6 +67,16 @@ object TitleSimilarity {
         val core = intersection.sorted().joinToString(" ")
         val combinedA = (intersection + restA).sorted().joinToString(" ")
         val combinedB = (intersection + restB).sorted().joinToString(" ")
+        // Subset guard (review H9): when the CANDIDATE's tokens are a strict subset
+        // of the query's (the local title is more specific), the classic token-set
+        // formula scores 1.0 (core == combined), so "Elite Force" would perfectly
+        // match "Elite" and "Fall 2" would match "Fall". Score the two full titles
+        // against each other instead. The reverse (query subset of candidate, e.g.
+        // "Matrix" -> "The Matrix") keeps the classic score: a more complete
+        // candidate title is normally the same work.
+        if (restB.isEmpty() && restA.isNotEmpty()) {
+            return ratio(combinedA, combinedB)
+        }
         return maxOf(
             ratio(core, combinedA),
             ratio(core, combinedB),
