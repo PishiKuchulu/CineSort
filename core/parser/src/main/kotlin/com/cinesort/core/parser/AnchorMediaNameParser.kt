@@ -28,6 +28,7 @@ class AnchorMediaNameParser(
 
     private data class Cleaned(val working: String, val tokens: List<Token>)
 
+    @Suppress("TooGenericExceptionCaught")
     override fun parse(
         fileName: String,
         context: PathContext,
@@ -50,55 +51,74 @@ class AnchorMediaNameParser(
     ): ParseResult {
         val cleaned = preClean(fileName)
         val tokens = cleaned.tokens
-        if (tokens.isEmpty()) {
-            return unrecognized(fileName, "empty name")
+        return if (tokens.isEmpty()) {
+            unrecognized(fileName, "empty name")
+        } else {
+            episodeStage(fileName, context, tokens)
+                ?: movieStage(fileName, tokens)
+                ?: bareEpisodeStage(fileName, context, cleaned)
+                ?: unrecognized(fileName, "no anchor found")
         }
+    }
 
-        // ---- Stage B: episode detection -------------------------------------
+    // ---- Stage B: episode detection -----------------------------------------
+
+    private fun episodeStage(
+        fileName: String,
+        context: PathContext,
+        tokens: List<Token>,
+    ): ParseResult? {
         val hit = findEpisodeMarker(tokens)
-        if (hit != null) {
-            val titleTokens = tokens.subList(0, hit.startToken)
-            val (title, yearHint) = extractSeriesTitle(titleTokens)
-            if (title != null) {
-                return ParseResult.Episode(
-                    fileName = fileName,
-                    seriesTitle = applyCasing(title),
-                    seriesYearHint = yearHint,
-                    season = hit.season,
-                    episodes = hit.episodes,
-                    fromFolderContext = false,
-                    confidence = Confidence.HIGH,
-                    trace = ParseTrace(
-                        titleRange = rangeOf(titleTokens),
-                        anchorRange = rangeOf(tokens.subList(hit.startToken, hit.endToken + 1)),
-                        anchorKind = AnchorKind.EPISODE_MARKER,
-                        rules = listOf("episode:marker-in-name"),
-                    ),
-                )
+        if (hit == null) {
+            // Season-only marker with no episode (spec 6.3 B): the name carries a
+            // title + season but no episode number, so it is unrecognized.
+            return if (hasSeasonOnlyMarker(tokens)) {
+                unrecognized(fileName, "season marker without episode")
+            } else {
+                null
             }
+        }
+        val titleTokens = tokens.subList(0, hit.startToken)
+        val (title, yearHint) = extractSeriesTitle(titleTokens)
+        return if (title != null) {
+            ParseResult.Episode(
+                fileName = fileName,
+                seriesTitle = applyCasing(title),
+                seriesYearHint = yearHint,
+                season = hit.season,
+                episodes = hit.episodes,
+                fromFolderContext = false,
+                confidence = Confidence.HIGH,
+                trace = ParseTrace(
+                    titleRange = rangeOf(titleTokens),
+                    anchorRange = rangeOf(tokens.subList(hit.startToken, hit.endToken + 1)),
+                    anchorKind = AnchorKind.EPISODE_MARKER,
+                    rules = listOf("episode:marker-in-name"),
+                ),
+            )
+        } else {
             // Marker present but no title in the name: context must supply the title.
-            return episodeFromContext(fileName, context, hit.season, hit.episodes)
+            episodeFromContext(fileName, context, hit.season, hit.episodes)
                 ?: unrecognized(fileName, "episode marker without series title")
         }
-        if (hasSeasonOnlyMarker(tokens)) {
-            // Season-only marker with no episode (spec 6.3 B): context may still save it
-            // when the file name itself is a bare episode number — handled below; here the
-            // name carries a title + season but no episode number, so it is unrecognized.
-            return unrecognized(fileName, "season marker without episode")
-        }
+    }
 
-        // ---- Stage C: movie detection ---------------------------------------
-        val movie = detectMovie(fileName, cleaned, tokens)
-        if (movie != null) return movie
+    // ---- Stage C: movie detection -------------------------------------------
 
-        // ---- Stage E: context inference for bare-episode names --------------
-        val bareEpisode = bareEpisodeNumber(cleaned.working)
-        if (bareEpisode != null) {
-            val fromContext = episodeFromContext(fileName, context, null, listOf(bareEpisode))
-            if (fromContext != null) return fromContext
-        }
+    private fun movieStage(
+        fileName: String,
+        tokens: List<Token>,
+    ): ParseResult.Movie? = detectMovie(fileName, tokens)
 
-        return unrecognized(fileName, "no anchor found")
+    // ---- Stage E: context inference for bare-episode names ------------------
+
+    private fun bareEpisodeStage(
+        fileName: String,
+        context: PathContext,
+        cleaned: Cleaned,
+    ): ParseResult.Episode? {
+        val bareEpisode = bareEpisodeNumber(cleaned.working) ?: return null
+        return episodeFromContext(fileName, context, null, listOf(bareEpisode))
     }
 
     // ---------------------------------------------------------------- Stage B
@@ -118,71 +138,83 @@ class AnchorMediaNameParser(
 
     private fun findEpisodeMarker(tokens: List<Token>): EpisodeHit? {
         for (i in tokens.indices) {
-            val text = tokens[i].text
-            combinedEpisodeRegex.matchEntire(text)?.let { m ->
-                val episodes = mutableListOf(m.groupValues[2].toInt())
-                episodes += extraEpisodeNumberRegex
-                    .findAll(m.groupValues[3]).map { it.groupValues[1].toInt() }.toList()
-                var end = i
-                // Consume following pure E## tokens (S01E01 E02 style).
-                while (end + 1 < tokens.size) {
-                    val extra = extraEpisodeRegex.matchEntire(tokens[end + 1].text) ?: break
-                    episodes += extra.groupValues[1].toInt()
-                    end++
-                }
-                return EpisodeHit(i, end, m.groupValues[1].toInt(), episodes)
-            }
-            seasonOnlyTokenRegex.matchEntire(text)?.let { m ->
-                val next = tokens.getOrNull(i + 1)
-                if (next != null) {
-                    episodeOnlyTokenRegex.matchEntire(next.text)?.let { e ->
-                        val episodes = mutableListOf(e.groupValues[1].toInt())
-                        episodes += extraEpisodeNumberRegex
-                            .findAll(e.groupValues[2]).map { it.groupValues[1].toInt() }.toList()
-                        return EpisodeHit(i, i + 1, m.groupValues[1].toInt(), episodes)
-                    }
-                }
-            }
-            xEpisodeRegex.matchEntire(text)?.let { m ->
-                // The anchored 1-2 digit season group can never match 1920x1080.
-                return EpisodeHit(i, i, m.groupValues[1].toInt(), listOf(m.groupValues[2].toInt()))
-            }
-            if (text.equals("Season", ignoreCase = true)) {
-                val seasonTok = tokens.getOrNull(i + 1)
-                val labelTok = tokens.getOrNull(i + 2)
-                val epTok = tokens.getOrNull(i + 3)
-                if (seasonTok != null && labelTok != null && epTok != null &&
-                    plainNumberRegex.matches(seasonTok.text) &&
-                    (labelTok.text.equals("Episode", true) || labelTok.text.equals("Ep", true) ||
-                        labelTok.text.equals("E", true)) &&
-                    plainNumberRegex.matches(epTok.text)
-                ) {
-                    return EpisodeHit(i, i + 3, seasonTok.text.toInt(), listOf(epTok.text.toInt()))
-                }
-            }
+            val hit = episodeHitAt(tokens, i)
+            if (hit != null) return hit
         }
         return null
     }
 
-    private fun hasSeasonOnlyMarker(tokens: List<Token>): Boolean {
-        for (i in tokens.indices) {
-            if (seasonOnlyTokenRegex.matches(tokens[i].text)) {
-                val next = tokens.getOrNull(i + 1)
-                if (next == null || !episodeOnlyTokenRegex.matches(next.text)) return true
-            }
-            if (tokens[i].text.matches(seasonWordRegex)) {
-                val next = tokens.getOrNull(i + 1)
-                if (next != null && plainNumberRegex.matches(next.text)) {
-                    val after = tokens.getOrNull(i + 2)
-                    if (after == null || !(after.text.equals("Episode", true) ||
-                            after.text.equals("Ep", true) || after.text.equals("E", true))
-                    ) {
-                        return true
-                    }
-                }
-            }
+    private fun episodeHitAt(tokens: List<Token>, i: Int): EpisodeHit? =
+        combinedEpisodeHit(tokens, i)
+            ?: seasonPairHit(tokens, i)
+            ?: xEpisodeHit(tokens[i].text, i)
+            ?: seasonWordsHit(tokens, i)
+
+    private fun combinedEpisodeHit(tokens: List<Token>, i: Int): EpisodeHit? {
+        val m = combinedEpisodeRegex.matchEntire(tokens[i].text) ?: return null
+        val episodes = mutableListOf(m.groupValues[2].toInt())
+        episodes += extraEpisodeNumberRegex
+            .findAll(m.groupValues[3]).map { it.groupValues[1].toInt() }.toList()
+        var end = i
+        // Consume following pure E## tokens (S01E01 E02 style).
+        while (end + 1 < tokens.size) {
+            val extra = extraEpisodeRegex.matchEntire(tokens[end + 1].text) ?: break
+            episodes += extra.groupValues[1].toInt()
+            end++
         }
-        return false
+        return EpisodeHit(i, end, m.groupValues[1].toInt(), episodes)
+    }
+
+    private fun seasonPairHit(tokens: List<Token>, i: Int): EpisodeHit? {
+        val m = seasonOnlyTokenRegex.matchEntire(tokens[i].text) ?: return null
+        val next = tokens.getOrNull(i + 1) ?: return null
+        val e = episodeOnlyTokenRegex.matchEntire(next.text) ?: return null
+        val episodes = mutableListOf(e.groupValues[1].toInt())
+        episodes += extraEpisodeNumberRegex
+            .findAll(e.groupValues[2]).map { it.groupValues[1].toInt() }.toList()
+        return EpisodeHit(i, i + 1, m.groupValues[1].toInt(), episodes)
+    }
+
+    private fun xEpisodeHit(text: String, i: Int): EpisodeHit? {
+        val m = xEpisodeRegex.matchEntire(text) ?: return null
+        // The anchored 1-2 digit season group can never match 1920x1080.
+        return EpisodeHit(i, i, m.groupValues[1].toInt(), listOf(m.groupValues[2].toInt()))
+    }
+
+    private fun seasonWordsHit(tokens: List<Token>, i: Int): EpisodeHit? {
+        if (!tokens[i].text.equals("Season", ignoreCase = true)) return null
+        val rest = tokens.subList(i + 1, minOf(i + 4, tokens.size))
+        if (rest.size < 3) return null
+        val (seasonTok, labelTok, epTok) = rest
+        val shapeOk = plainNumberRegex.matches(seasonTok.text) &&
+            isEpisodeLabel(labelTok.text) && plainNumberRegex.matches(epTok.text)
+        return if (shapeOk) {
+            EpisodeHit(i, i + 3, seasonTok.text.toInt(), listOf(epTok.text.toInt()))
+        } else {
+            null
+        }
+    }
+
+    private fun isEpisodeLabel(text: String): Boolean =
+        text.equals("Episode", true) || text.equals("Ep", true) || text.equals("E", true)
+
+    private fun hasSeasonOnlyMarker(tokens: List<Token>): Boolean =
+        tokens.indices.any { i -> seasonOnlyAt(tokens, i) || seasonWordOnlyAt(tokens, i) }
+
+    /** A bare S## token whose next token is not an episode token. */
+    private fun seasonOnlyAt(tokens: List<Token>, i: Int): Boolean {
+        if (!seasonOnlyTokenRegex.matches(tokens[i].text)) return false
+        val next = tokens.getOrNull(i + 1)
+        return next == null || !episodeOnlyTokenRegex.matches(next.text)
+    }
+
+    /** A "Season N" word pair not followed by an episode label. */
+    private fun seasonWordOnlyAt(tokens: List<Token>, i: Int): Boolean {
+        if (!tokens[i].text.matches(seasonWordRegex)) return false
+        val next = tokens.getOrNull(i + 1)
+        if (next == null || !plainNumberRegex.matches(next.text)) return false
+        val after = tokens.getOrNull(i + 2)
+        return after == null || !isEpisodeLabel(after.text)
     }
 
     /** Splits a trailing valid year off the series title tokens as a year hint (spec 6.3 B). */
@@ -224,12 +256,18 @@ class AnchorMediaNameParser(
 
     private fun detectMovie(
         fileName: String,
-        cleaned: Cleaned,
+        tokens: List<Token>,
+    ): ParseResult.Movie? =
+        movieByYear(fileName, tokens)
+            ?: movieByResolution(fileName, tokens)
+            ?: movieByNoiseRun(fileName, tokens)
+
+    /** Primary anchor: the last valid year before the release-noise region. */
+    private fun movieByYear(
+        fileName: String,
         tokens: List<Token>,
     ): ParseResult.Movie? {
-        val extraNoise = extraNoiseWords.map { it.lowercase(Locale.ROOT) }.toSet()
         val noiseStart = yearSearchBound(tokens)
-
         val candidates = tokens.indices.filter { idx ->
             val year = yearValue(tokens[idx].text) ?: return@filter false
             if (idx >= noiseStart) return@filter false
@@ -238,42 +276,50 @@ class AnchorMediaNameParser(
             // preceding title token (review H5).
             idx > 0
         }
-        val yearIdx = candidates.lastOrNull()
-        if (yearIdx != null) {
-            val title = joinTokens(tokens.subList(0, yearIdx)) ?: return null
-            return ParseResult.Movie(
-                fileName = fileName,
-                title = applyCasing(title),
-                year = yearValue(tokens[yearIdx].text),
-                confidence = Confidence.HIGH,
-                trace = ParseTrace(
-                    titleRange = rangeOf(tokens.subList(0, yearIdx)),
-                    anchorRange = rangeOf(listOf(tokens[yearIdx])),
-                    anchorKind = AnchorKind.YEAR,
-                    rules = listOf("movie:last-year-before-noise"),
-                ),
-            )
-        }
+        val yearIdx = candidates.lastOrNull() ?: return null
+        val title = joinTokens(tokens.subList(0, yearIdx)) ?: return null
+        return ParseResult.Movie(
+            fileName = fileName,
+            title = applyCasing(title),
+            year = yearValue(tokens[yearIdx].text),
+            confidence = Confidence.HIGH,
+            trace = ParseTrace(
+                titleRange = rangeOf(tokens.subList(0, yearIdx)),
+                anchorRange = rangeOf(listOf(tokens[yearIdx])),
+                anchorKind = AnchorKind.YEAR,
+                rules = listOf("movie:last-year-before-noise"),
+            ),
+        )
+    }
 
-        // Fallback anchor 1: first resolution token.
+    /** Fallback anchor 1: first resolution token. */
+    private fun movieByResolution(
+        fileName: String,
+        tokens: List<Token>,
+    ): ParseResult.Movie? {
         val resIdx = tokens.indexOfFirst { NoiseVocabulary.isResolution(it.text) }
-        if (resIdx > 0) {
-            val title = joinTokens(tokens.subList(0, resIdx)) ?: return null
-            return ParseResult.Movie(
-                fileName = fileName,
-                title = applyCasing(title),
-                year = null,
-                confidence = Confidence.MEDIUM,
-                trace = ParseTrace(
-                    titleRange = rangeOf(tokens.subList(0, resIdx)),
-                    anchorRange = rangeOf(listOf(tokens[resIdx])),
-                    anchorKind = AnchorKind.RESOLUTION_FALLBACK,
-                    rules = listOf("movie:resolution-fallback"),
-                ),
-            )
-        }
+        if (resIdx <= 0) return null
+        val title = joinTokens(tokens.subList(0, resIdx)) ?: return null
+        return ParseResult.Movie(
+            fileName = fileName,
+            title = applyCasing(title),
+            year = null,
+            confidence = Confidence.MEDIUM,
+            trace = ParseTrace(
+                titleRange = rangeOf(tokens.subList(0, resIdx)),
+                anchorRange = rangeOf(listOf(tokens[resIdx])),
+                anchorKind = AnchorKind.RESOLUTION_FALLBACK,
+                rules = listOf("movie:resolution-fallback"),
+            ),
+        )
+    }
 
-        // Fallback anchor 2: first run of >= 2 consecutive noise tokens.
+    /** Fallback anchor 2: first run of >= 2 consecutive noise tokens. */
+    private fun movieByNoiseRun(
+        fileName: String,
+        tokens: List<Token>,
+    ): ParseResult.Movie? {
+        val extraNoise = extraNoiseWords.map { it.lowercase(Locale.ROOT) }.toSet()
         var runStart = -1
         var runLength = 0
         for (i in tokens.indices) {
@@ -286,22 +332,20 @@ class AnchorMediaNameParser(
                 runStart = -1
             }
         }
-        if (runLength >= 2 && runStart > 0) {
-            val title = joinTokens(tokens.subList(0, runStart)) ?: return null
-            return ParseResult.Movie(
-                fileName = fileName,
-                title = applyCasing(title),
-                year = null,
-                confidence = Confidence.MEDIUM,
-                trace = ParseTrace(
-                    titleRange = rangeOf(tokens.subList(0, runStart)),
-                    anchorRange = rangeOf(tokens.subList(runStart, runStart + 2)),
-                    anchorKind = AnchorKind.NOISE_RUN_FALLBACK,
-                    rules = listOf("movie:noise-run-fallback"),
-                ),
-            )
-        }
-        return null
+        if (runLength < 2 || runStart <= 0) return null
+        val title = joinTokens(tokens.subList(0, runStart)) ?: return null
+        return ParseResult.Movie(
+            fileName = fileName,
+            title = applyCasing(title),
+            year = null,
+            confidence = Confidence.MEDIUM,
+            trace = ParseTrace(
+                titleRange = rangeOf(tokens.subList(0, runStart)),
+                anchorRange = rangeOf(tokens.subList(runStart, runStart + 2)),
+                anchorKind = AnchorKind.NOISE_RUN_FALLBACK,
+                rules = listOf("movie:noise-run-fallback"),
+            ),
+        )
     }
 
     // ---------------------------------------------------------------- Stage E
@@ -331,21 +375,12 @@ class AnchorMediaNameParser(
         var title: String? = null
         var usedRoot = false
         for (folder in context.ancestors) {
-            val seasonFolder = seasonFolderRegex.matchEntire(folder.trim())
-            if (seasonFolder != null) {
-                if (season == null) {
-                    val digits = seasonFolder.groupValues[1].ifEmpty { seasonFolder.groupValues[2] }
-                    season = NormalizedKey.foldDigits(digits).toIntOrNull()
-                }
-                continue
-            }
-            val folderTitle = cleanFolderTitle(folder)
-            if (folderTitle != null) {
-                title = folderTitle
-                if (season == null) season = seasonFromFolderName(folder)
+            val scan = scanAncestorFolder(folder, season)
+            season = scan.season
+            if (scan.title != null) {
+                title = scan.title
                 break
             }
-            if (season == null) season = seasonFromFolderName(folder)
         }
         if (title == null && context.sourceRootName != null) {
             title = cleanFolderTitle(context.sourceRootName)
@@ -371,6 +406,33 @@ class AnchorMediaNameParser(
         )
     }
 
+    private data class AncestorScan(val season: Int?, val title: String?)
+
+    /**
+     * One ancestor folder's contribution to the context walk: a season-folder
+     * match only refines the season; any other folder may supply the title
+     * (which ends the walk) and, failing that, a season hint.
+     */
+    private fun scanAncestorFolder(folder: String, seasonIn: Int?): AncestorScan {
+        val seasonFolder = seasonFolderRegex.matchEntire(folder.trim())
+        if (seasonFolder != null) {
+            return AncestorScan(seasonIn ?: seasonFromSeasonFolderMatch(seasonFolder), null)
+        }
+        var season = seasonIn
+        val folderTitle = cleanFolderTitle(folder)
+        if (folderTitle != null) {
+            if (season == null) season = seasonFromFolderName(folder)
+            return AncestorScan(season, folderTitle)
+        }
+        if (season == null) season = seasonFromFolderName(folder)
+        return AncestorScan(season, null)
+    }
+
+    private fun seasonFromSeasonFolderMatch(match: MatchResult): Int? {
+        val digits = match.groupValues[1].ifEmpty { match.groupValues[2] }
+        return NormalizedKey.foldDigits(digits).toIntOrNull()
+    }
+
     private val seasonInFolderRegex = Regex("""(?i)(?:^|[ ._-])S(\d{1,2})(?:[ ._-]|$)""")
 
     private fun seasonFromFolderName(folder: String): Int? {
@@ -389,11 +451,9 @@ class AnchorMediaNameParser(
         if (tokens.isEmpty()) return null
         var cut = tokens.size
         for (i in tokens.indices) {
-            val t = tokens[i].text
-            when {
-                combinedEpisodeRegex.matches(t) || seasonOnlyTokenRegex.matches(t) -> { cut = i; break }
-                yearValue(t) != null && i > 0 -> { cut = i; break }
-                NoiseVocabulary.isResolution(t) -> { cut = i; break }
+            if (isTitleCutToken(tokens[i].text, i)) {
+                cut = i
+                break
             }
         }
         val titleTokens = tokens.subList(0, cut)
@@ -402,6 +462,11 @@ class AnchorMediaNameParser(
         if (seasonFolderRegex.matches(folder.trim())) return null
         return joinTokens(titleTokens)
     }
+
+    /** A token that ends a folder title: episode marker, later year, or resolution. */
+    private fun isTitleCutToken(text: String, index: Int): Boolean =
+        combinedEpisodeRegex.matches(text) || seasonOnlyTokenRegex.matches(text) ||
+            (yearValue(text) != null && index > 0) || NoiseVocabulary.isResolution(text)
 
     // ---------------------------------------------------------------- Stage A
 
@@ -475,25 +540,16 @@ class AnchorMediaNameParser(
         // protected span excludes it.
         val protectedSpans = acronymRegex.findAll(s)
             .map { IntRange(it.range.first, it.range.last - 1) }.toList()
-        fun isProtected(pos: Int): Boolean = protectedSpans.any { pos in it }
         val replaced = s.replace(" - ", " . ")
         val tokens = mutableListOf<Token>()
         var i = 0
         while (i < replaced.length) {
-            val c = replaced[i]
-            val isSeparator = (c == ' ' || c == '\t' || c == '.' || c == '_' ||
-                c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}') && !isProtected(i)
-            if (isSeparator) {
+            if (isSeparatorAt(replaced, i, protectedSpans)) {
                 i++
                 continue
             }
             var j = i
-            while (j < replaced.length) {
-                val cj = replaced[j]
-                val sep = (cj == ' ' || cj == '\t' || cj == '.' || cj == '_' ||
-                    cj == '[' || cj == ']' || cj == '(' || cj == ')' || cj == '{' || cj == '}') &&
-                    !isProtected(j)
-                if (sep) break
+            while (j < replaced.length && !isSeparatorAt(replaced, j, protectedSpans)) {
                 j++
             }
             val text = replaced.substring(i, j)
@@ -505,6 +561,14 @@ class AnchorMediaNameParser(
             i = j
         }
         return tokens
+    }
+
+    /** Separators are whitespace/dot/underscore/bracket chars outside acronym spans. */
+    private fun isSeparatorAt(s: String, pos: Int, protectedSpans: List<IntRange>): Boolean {
+        val c = s[pos]
+        val separatorChar = c == ' ' || c == '\t' || c == '.' || c == '_' ||
+            c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}'
+        return separatorChar && protectedSpans.none { pos in it }
     }
 
     // ---------------------------------------------------------------- helpers

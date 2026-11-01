@@ -29,21 +29,21 @@ object TitleCasing {
         count: Int,
         wholeLower: Boolean,
     ): String {
-        if (word.isEmpty()) return word
-        // Roman numerals: tokens made solely of I/V/X, length 2..6, valid numeral <= 39.
-        romanValue(word)?.let { return word.uppercase(Locale.ROOT) }
-        // Words with internal capitals or all-caps acronyms are never altered.
-        if (hasInternalCapital(word) || isAllCaps(word)) return word
-        // Small words in the middle of the title are lowercased.
         val lower = word.lowercase(Locale.ROOT)
-        if (index > 0 && index < count - 1 && lower in smallWords) return lower
-        // Whole title was lowercase: capitalize every word (each hyphen part too).
-        if (wholeLower) {
-            return word.split('-').joinToString("-") { part ->
+        return when {
+            word.isEmpty() -> word
+            // Roman numerals: tokens made solely of I/V/X, length 2..6, valid <= 39.
+            romanValue(word) != null -> word.uppercase(Locale.ROOT)
+            // Words with internal capitals or all-caps acronyms are never altered.
+            hasInternalCapital(word) || isAllCaps(word) -> word
+            // Small words in the middle of the title are lowercased.
+            index > 0 && index < count - 1 && lower in smallWords -> lower
+            // Whole title was lowercase: capitalize every word (each hyphen part too).
+            wholeLower -> word.split('-').joinToString("-") { part ->
                 part.replaceFirstChar { c -> c.uppercase(Locale.ROOT) }
             }
+            else -> word
         }
-        return word
     }
 
     private fun hasInternalCapital(word: String): Boolean =

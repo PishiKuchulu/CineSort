@@ -120,11 +120,11 @@ class OrganizePlanner {
         val handedOut = mutableSetOf<String>()
 
         return staged.map { item ->
-            if (item.status == PlannedStatus.SKIPPED ||
-                item.status == PlannedStatus.ALREADY_ORGANIZED ||
-                item.status == PlannedStatus.RECENTLY_MODIFIED ||
+            val inactiveStatus = item.status == PlannedStatus.SKIPPED ||
+                item.status == PlannedStatus.ALREADY_ORGANIZED
+            val heldStatus = item.status == PlannedStatus.RECENTLY_MODIFIED ||
                 item.status == PlannedStatus.NEEDS_REVIEW
-            ) {
+            if (inactiveStatus || heldStatus) {
                 return@map item
             }
             val existsInDestination = item.targetPath in input.destination.files
@@ -137,9 +137,9 @@ class OrganizePlanner {
             }
             // Keep-both among source duplicates only (review M2): the first item
             // keeps the plain name; only later ones are suffixed.
-            if (input.conflictChoices[item.id] == ConflictChoice.KEEP_BOTH &&
+            val keepBothFirstDuplicate = input.conflictChoices[item.id] == ConflictChoice.KEEP_BOTH &&
                 duplicated && !existsInDestination && item.targetPath !in handedOut
-            ) {
+            if (keepBothFirstDuplicate) {
                 handedOut += item.targetPath
                 return@map withContext
             }
