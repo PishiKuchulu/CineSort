@@ -23,25 +23,30 @@ class ParserCorpusTest {
         assertEquals(confidence, result.confidence, "confidence for $fileName")
     }
 
+    /** Optional expectations for [assertEpisode], bundled to keep its signature short. */
+    private data class EpisodeOptions(
+        val yearHint: Int? = null,
+        val context: PathContext = PathContext.None,
+        val confidence: Confidence = Confidence.HIGH,
+        val fromFolder: Boolean = false,
+    )
+
     private fun assertEpisode(
         fileName: String,
         seriesTitle: String,
         season: Int,
         episodes: List<Int>,
-        yearHint: Int? = null,
-        context: PathContext = PathContext.None,
-        confidence: Confidence = Confidence.HIGH,
-        fromFolder: Boolean = false,
+        options: EpisodeOptions = EpisodeOptions(),
     ) {
-        val result = parser.parse(fileName, context)
+        val result = parser.parse(fileName, options.context)
         assertTrue(result is ParseResult.Episode, "expected Episode for $fileName but was $result")
         result as ParseResult.Episode
         assertEquals(seriesTitle, result.seriesTitle, "series title for $fileName")
         assertEquals(season, result.season, "season for $fileName")
         assertEquals(episodes, result.episodes, "episodes for $fileName")
-        assertEquals(yearHint, result.seriesYearHint, "year hint for $fileName")
-        assertEquals(confidence, result.confidence, "confidence for $fileName")
-        assertEquals(fromFolder, result.fromFolderContext, "fromFolderContext for $fileName")
+        assertEquals(options.yearHint, result.seriesYearHint, "year hint for $fileName")
+        assertEquals(options.confidence, result.confidence, "confidence for $fileName")
+        assertEquals(options.fromFolder, result.fromFolderContext, "fromFolderContext for $fileName")
     }
 
     @Test
@@ -118,7 +123,7 @@ class ParserCorpusTest {
         )
         assertEpisode(
             "The.Agency.2024.S01E01.10bit.x265.1080p.WEBRip.6CH.PSA.Farsi.Sub.Film2Media.mkv",
-            "The Agency", 1, listOf(1), yearHint = 2024,
+            "The Agency", 1, listOf(1), options = EpisodeOptions(yearHint = 2024),
         )
         assertEpisode(
             "3.Body.Problem.S01E01.1080p.10bit.WEBRip.6CH.x265.PSA.Farsi.Sub.Film2Media.mkv",
@@ -137,7 +142,7 @@ class ParserCorpusTest {
         assertEpisode("The.Office.US.S02E03.720p.WEB-DL.mkv", "The Office US", 2, listOf(3))
         assertEpisode(
             "S.W.A.T.2017.S01E01.1080p.WEB-DL.mkv",
-            "S.W.A.T", 1, listOf(1), yearHint = 2017,
+            "S.W.A.T", 1, listOf(1), options = EpisodeOptions(yearHint = 2017),
         )
         assertEpisode(
             "Dexter.Resurrection.S02E01.1080p.دوبله.فارسی.mkv",
@@ -156,13 +161,17 @@ class ParserCorpusTest {
     fun corpusFolderContext() {
         assertEpisode(
             "E01.mkv", "Squid Game", 1, listOf(1),
-            context = PathContext(ancestors = listOf("Season 1", "Squid Game")),
-            confidence = Confidence.MEDIUM, fromFolder = true,
+            options = EpisodeOptions(
+                context = PathContext(ancestors = listOf("Season 1", "Squid Game")),
+                confidence = Confidence.MEDIUM, fromFolder = true,
+            ),
         )
         assertEpisode(
             "01.mkv", "Squid Game", 1, listOf(1),
-            context = PathContext(ancestors = listOf("Squid.Game.S01.1080p.WEB-DL")),
-            confidence = Confidence.MEDIUM, fromFolder = true,
+            options = EpisodeOptions(
+                context = PathContext(ancestors = listOf("Squid.Game.S01.1080p.WEB-DL")),
+                confidence = Confidence.MEDIUM, fromFolder = true,
+            ),
         )
     }
 
