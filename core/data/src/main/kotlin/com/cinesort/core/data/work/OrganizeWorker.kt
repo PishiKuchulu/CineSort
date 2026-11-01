@@ -261,6 +261,8 @@ class OrganizeWorker @AssistedInject constructor(
     // ------------------------------------------------------------ notification
 
     private fun createNotificationChannel() {
+        // Notification channels exist only on API 26+; older versions post without one.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = applicationContext.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(

@@ -17,6 +17,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Core library desugaring (spec section 3, same as :app): java.time on API 24+.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -30,6 +32,7 @@ ksp {
 
 dependencies {
     implementation(project(":core:domain"))
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.room.runtime)
