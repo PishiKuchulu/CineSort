@@ -3,49 +3,46 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
-
       # Binary assets are not tracked in git (see docs/DECISIONS.md):
       # the wrapper jar is regenerated and the Vazirmatn fonts are fetched
       # at the exact pinned versions the local tree carries.
       - name: Regenerate Gradle wrapper
         run: gradle wrapper --gradle-version 8.10.2
-
       - name: Fetch Vazirmatn fonts (v33.003)
         run: |
           cd core/designsystem/src/main/res/font
           curl -fsSL -o vazirmatn_regular.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Regular.ttf
           curl -fsSL -o vazirmatn_medium.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Medium.ttf
           curl -fsSL -o vazirmatn_bold.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Bold.ttf
-
       - name: Build debug APK and run unit tests
         run: ./gradlew assembleDebug testDebugUnitTest lint detekt --stacktrace
-
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: cinesort-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,3 +51,42 @@ jobs:
           path: |
             **/build/reports/tests/**
             **/build/test-results/**
+
+      # Release signing (keystore arrives from repo secrets, never from git).
+      - name: Decode release keystore
+        id: ks
+        run: |
+          if [ -n "${{ secrets.CINESORT_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.CINESORT_KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/release.keystore"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build signed release APK
+        if: steps.ks.outputs.present == 'true'
+        env:
+          CINESORT_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          CINESORT_KEYSTORE_PASSWORD: ${{ secrets.CINESORT_KEYSTORE_PASSWORD }}
+          CINESORT_KEY_ALIAS: ${{ secrets.CINESORT_KEY_ALIAS }}
+          CINESORT_KEY_PASSWORD: ${{ secrets.CINESORT_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+      - name: Upload release APK
+        if: success() && steps.ks.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinesort-release-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      # Tag builds publish the GitHub Release the in-app updater reads:
+      # CineSort-<version>.apk plus its .sha256 sidecar.
+      - name: Publish GitHub Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v') && steps.ks.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -n1)"
+          cp "$APK" "CineSort-$VERSION.apk"
+          sha256sum "CineSort-$VERSION.apk" > "CineSort-$VERSION.apk.sha256"
+          gh release create "$GITHUB_REF_NAME" --title "CineSort $GITHUB_REF_NAME" --notes "CineSort $GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" "CineSort-$VERSION.apk" "CineSort-$VERSION.apk.sha256"
