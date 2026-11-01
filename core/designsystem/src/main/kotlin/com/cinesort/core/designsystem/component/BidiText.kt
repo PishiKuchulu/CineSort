@@ -11,8 +11,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.cinesort.core.designsystem.theme.MonoFontFamily
 
 /** Unicode isolate characters (spec 10.2): FSI (U+2068) opens, PDI (U+2069) closes. */
-const val FSI: String = "⁨"
-const val PDI: String = "⁩"
+const val FSI: String = "\u2068"
+const val PDI: String = "\u2069"
 
 /** Wraps an LTR string (file name, path) in FSI/PDI isolates for embedding in RTL text. */
 fun isolateLtr(value: String): String = FSI + value + PDI

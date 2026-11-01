@@ -281,7 +281,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
         val uri = parseUri(dir)
         val treeUri = treeUriOf(uri)
         val documentId = documentIdOf(uri)
-        return queryChildren(treeUri, documentId).map { child ->
+        return@withContext queryChildren(treeUri, documentId).map { child ->
             val childDocumentUri = childUri(treeUri, child.documentId)
             val ref: Ref = if (child.isDirectory) {
                 DirRef(childDocumentUri.toString(), child.name)
@@ -316,7 +316,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
             DocumentsContract.Document.MIME_TYPE_DIR,
             name,
         ) ?: throw IOException("provider refused to create directory: $name")
-        return DirRef(created.toString(), name)
+        return@withContext DirRef(created.toString(), name)
     }
 
     // ------------------------------------------------------------------ move / copy
@@ -337,11 +337,11 @@ class SafStorageGateway(context: Context) : StorageGateway {
                 documentUriOf(fromDir),
                 documentUriOf(toDir),
             ) ?: throw IOException("provider move failed for ${file.name}")
-            return FileRef(moved.toString(), file.name, file.size, file.lastModified, toDir.id)
+            return@withContext FileRef(moved.toString(), file.name, file.size, file.lastModified, toDir.id)
         }
         val copied = copyVerified(file, toDir, targetName = file.name)
         delete(file)
-        return copied
+        return@withContext copied
     }
 
     override suspend fun copyVerified(
@@ -403,7 +403,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
             // is still "X.cinesort-part", and the caller deletes the source.
             val finalUri = DocumentsContract.renameDocument(resolver, partialUri, targetName)
                 ?: throw IOException("provider refused to rename partial file to $targetName")
-            return FileRef(finalUri.toString(), targetName, file.size, file.lastModified, toDir.id)
+            return@withContext FileRef(finalUri.toString(), targetName, file.size, file.lastModified, toDir.id)
         } catch (e: CancellationException) {
             runCatching { DocumentsContract.deleteDocument(resolver, partialUri) }
             throw e
@@ -445,12 +445,12 @@ class SafStorageGateway(context: Context) : StorageGateway {
         }
         for (path in candidatePaths.asReversed()) {
             try {
-                if (path.exists()) return StatFs(path.absolutePath).availableBytes
+                if (path.exists()) return@withContext StatFs(path.absolutePath).availableBytes
             } catch (e: Exception) {
                 Timber.w(e, "StatFs failed for %s", path)
             }
         }
-        return null
+        return@withContext null
     }
 
     override suspend fun isValid(dir: DirRef): Boolean = withContext(Dispatchers.IO) {
