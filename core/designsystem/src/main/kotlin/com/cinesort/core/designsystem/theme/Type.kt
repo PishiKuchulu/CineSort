@@ -17,85 +17,84 @@ val VazirmatnFontFamily = FontFamily(
 /** Monospace face for file names, paths and folder names (spec 10.2). */
 val MonoFontFamily = FontFamily.Monospace
 
+/**
+ * Atelier type scale (ported from Anvex): Display 26/800, Title 20/800,
+ * Headline 16/800, Body 14/500, Caption 12/500 on Vazirmatn. The bundled
+ * family carries Regular/Medium/Bold files, so ExtraBold slots resolve to
+ * the Bold file. headlineMedium is not an Atelier slot; it interpolates
+ * the same scale (24/800) for the one CineSort slot Atelier leaves open.
+ */
 val CineSortTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 36.sp,
-        lineHeight = 44.sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 26.sp,
+        lineHeight = 34.sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 36.sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 24.sp,
+        lineHeight = 31.sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
-        lineHeight = 32.sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 20.sp,
+        lineHeight = 27.sp,
     ),
     titleLarge = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 20.sp,
+        lineHeight = 27.sp,
     ),
     titleMedium = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.ExtraBold,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.15.sp,
+        lineHeight = 22.sp,
     ),
     titleSmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 16.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.5.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.25.sp,
+        lineHeight = 21.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
+        lineHeight = 18.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = VazirmatnFontFamily,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
     ),
     labelMedium = TextStyle(
         fontFamily = VazirmatnFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.5.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp,
+        lineHeight = 15.sp,
     ),
 )

@@ -15,10 +15,16 @@ import androidx.compose.ui.platform.LocalContext
 private val DarkColorScheme: ColorScheme = darkColorScheme(
     primary = CinePrimaryAmber,
     onPrimary = CineOnPrimaryDark,
-    primaryContainer = CineSurfaceContainerDark,
-    onPrimaryContainer = CineOnSurfaceDark,
-    secondary = CineSeriesAccent,
-    onSecondary = CineOnPrimaryDark,
+    primaryContainer = CinePrimaryContainerDark,
+    onPrimaryContainer = CineOnPrimaryContainerDark,
+    secondary = CineSecondaryDark,
+    onSecondary = CineOnSecondaryDark,
+    secondaryContainer = CineSecondaryContainerDark,
+    onSecondaryContainer = CineOnSecondaryContainerDark,
+    tertiary = CineSeriesAccent,
+    onTertiary = CineOnSeriesDark,
+    tertiaryContainer = CineSeriesContainerDark,
+    onTertiaryContainer = CineOnSeriesContainerDark,
     background = CineBackgroundDark,
     onBackground = CineOnSurfaceDark,
     surface = CineSurfaceDark,
@@ -28,18 +34,26 @@ private val DarkColorScheme: ColorScheme = darkColorScheme(
     surfaceContainer = CineSurfaceContainerDark,
     surfaceContainerHigh = CineSurfaceContainerDark,
     outline = CineOutlineDark,
-    outlineVariant = CineOutlineDark,
+    outlineVariant = CineOutlineVariantDark,
     error = CineError,
-    onError = CineOnSurfaceDark,
+    onError = CineOnErrorDark,
+    errorContainer = CineErrorContainerDark,
+    onErrorContainer = CineOnErrorContainerDark,
 )
 
 private val LightColorScheme: ColorScheme = lightColorScheme(
     primary = CinePrimaryLight,
     onPrimary = CineOnPrimaryLight,
-    primaryContainer = CineSurfaceContainerLight,
-    onPrimaryContainer = CineOnSurfaceLight,
-    secondary = CineSeriesAccentLight,
-    onSecondary = CineOnPrimaryLight,
+    primaryContainer = CinePrimaryContainerLight,
+    onPrimaryContainer = CineOnPrimaryContainerLight,
+    secondary = CineSecondaryLight,
+    onSecondary = CineOnSecondaryLight,
+    secondaryContainer = CineSecondaryContainerLight,
+    onSecondaryContainer = CineOnSecondaryContainerLight,
+    tertiary = CineSeriesAccentLight,
+    onTertiary = CineOnSeriesLight,
+    tertiaryContainer = CineSeriesContainerLight,
+    onTertiaryContainer = CineOnSeriesContainerLight,
     background = CineBackgroundLight,
     onBackground = CineOnSurfaceLight,
     surface = CineSurfaceLight,
@@ -49,13 +63,17 @@ private val LightColorScheme: ColorScheme = lightColorScheme(
     surfaceContainer = CineSurfaceContainerLight,
     surfaceContainerHigh = CineSurfaceContainerLight,
     outline = CineOutlineLight,
-    outlineVariant = CineOutlineLight,
+    outlineVariant = CineOutlineVariantLight,
     error = CineErrorLight,
-    onError = CineOnPrimaryLight,
+    onError = CineOnErrorLight,
+    errorContainer = CineErrorContainerLight,
+    onErrorContainer = CineOnErrorContainerLight,
 )
 
 /**
- * CineSort theme ("Cinema Noir", spec 10.1).
+ * CineSort theme: the Atelier token system ported from Anvex (owner request
+ * 2026-11-01, replacing "Cinema Noir"). Only token values changed — every
+ * screen, component and layout is untouched.
  *
  * @param darkTheme whether the dark scheme applies.
  * @param dynamicColor when true and the device supports it (Android 12+), the
@@ -86,7 +104,7 @@ fun CineSortTheme(
     }
 }
 
-/** Accessor for the extra Cinema Noir tokens of the current theme. */
+/** Accessor for the extra Atelier tokens of the current theme. */
 object CineSortThemeTokens {
     val current: CineSortTokens
         @Composable get() = LocalCineSortTokens.current

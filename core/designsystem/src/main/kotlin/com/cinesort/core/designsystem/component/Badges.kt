@@ -8,13 +8,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.cinesort.core.designsystem.theme.LocalCineSortTokens
 
 enum class MediaKind { MOVIE, SERIES }
 
-/** Type chip: Movie in projector amber, Series in signal teal (spec 10.1). */
+/** Type chip: Movie in the Atelier accent, Series in the Atelier tertiary blue. */
 @Composable
 fun MediaTypeChip(
     kind: MediaKind,
@@ -26,6 +25,10 @@ fun MediaTypeChip(
         MediaKind.MOVIE -> tokens.movieAccent
         MediaKind.SERIES -> tokens.seriesAccent
     }
+    val foreground = when (kind) {
+        MediaKind.MOVIE -> MaterialTheme.colorScheme.onPrimary
+        MediaKind.SERIES -> MaterialTheme.colorScheme.onTertiary
+    }
     Text(
         text = label,
         modifier = modifier
@@ -33,7 +36,7 @@ fun MediaTypeChip(
             .background(background)
             .padding(horizontal = 10.dp, vertical = 4.dp),
         style = MaterialTheme.typography.labelMedium,
-        color = Color(0xFF14100A),
+        color = foreground,
     )
 }
 
