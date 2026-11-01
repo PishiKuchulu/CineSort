@@ -21,6 +21,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing comes from CI secrets via environment variables
+    // (the keystore itself is never committed). Without them the release
+    // build stays unsigned, so local/debug workflows are unaffected.
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("CINESORT_KEYSTORE_PATH")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("CINESORT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CINESORT_KEY_ALIAS")
+                keyPassword = System.getenv("CINESORT_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -29,6 +44,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (System.getenv("CINESORT_KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
