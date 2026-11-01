@@ -10,7 +10,10 @@ import com.cinesort.core.data.repository.SecretStore
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.usecase.EnsureLibraryRootsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +26,7 @@ data class OnboardingUiState(
     val sourcesCount: Int = 0,
     val rootsCreated: List<String> = emptyList(),
     val rootsFound: List<String> = emptyList(),
+    val rootsError: String? = null,
     val tmdbKey: String = "",
     val omdbKey: String = "",
     val tmdbTestMessage: String? = null,
@@ -40,6 +44,11 @@ class OnboardingViewModel @Inject constructor(
     private val ensureRoots = EnsureLibraryRootsUseCase(storageGateway)
     private val rootsCreated = MutableStateFlow<List<String>>(emptyList())
     private val rootsFound = MutableStateFlow<List<String>>(emptyList())
+    private val rootsError = MutableStateFlow<String?>(null)
+    private val tmdbKeyField = MutableStateFlow<String?>(null)
+    private val omdbKeyField = MutableStateFlow<String?>(null)
+    private var tmdbSaveJob: Job? = null
+    private var omdbSaveJob: Job? = null
     private val tmdbTestMessage = MutableStateFlow<String?>(null)
     private val omdbTestMessage = MutableStateFlow<String?>(null)
 
@@ -57,6 +66,13 @@ class OnboardingViewModel @Inject constructor(
         )
     }.combine(rootsCreated) { state, created -> state.copy(rootsCreated = created) }
         .combine(rootsFound) { state, found -> state.copy(rootsFound = found) }
+        .combine(rootsError) { state, error -> state.copy(rootsError = error) }
+        .combine(tmdbKeyField) { state, field ->
+            if (field != null) state.copy(tmdbKey = field) else state
+        }
+        .combine(omdbKeyField) { state, field ->
+            if (field != null) state.copy(omdbKey = field) else state
+        }
         .combine(tmdbTestMessage) { state, message -> state.copy(tmdbTestMessage = message) }
         .combine(omdbTestMessage) { state, message -> state.copy(omdbTestMessage = message) }
         .stateIn(
@@ -67,10 +83,16 @@ class OnboardingViewModel @Inject constructor(
 
     fun onDestinationPicked(uriString: String, name: String) {
         viewModelScope.launch {
-            libraryRepository.setDestination(uriString, name)
-            val result = ensureRoots(dirRefOf(uriString, name))
-            rootsCreated.value = result.created
-            rootsFound.value = result.found
+            // Bootstrap first, persist only on success (review H3).
+            try {
+                val result = ensureRoots(dirRefOf(uriString, name))
+                libraryRepository.setDestination(uriString, name)
+                rootsCreated.value = result.created
+                rootsFound.value = result.found
+                rootsError.value = null
+            } catch (e: IOException) {
+                rootsError.value = e.message ?: e.javaClass.simpleName
+            }
         }
     }
 
@@ -85,22 +107,46 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
+    // API-key fields keep local state while typing (review M8); the encrypted
+    // store is written debounced instead of on every keystroke.
     fun onTmdbKeyChange(value: String) {
         tmdbTestMessage.value = null
-        viewModelScope.launch { secretStore.setTmdbKey(value) }
+        tmdbKeyField.value = value
+        tmdbSaveJob?.cancel()
+        tmdbSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            secretStore.setTmdbKey(value)
+            tmdbKeyField.value = null
+        }
     }
 
     fun onOmdbKeyChange(value: String) {
         omdbTestMessage.value = null
-        viewModelScope.launch { secretStore.setOmdbKey(value) }
+        omdbKeyField.value = value
+        omdbSaveJob?.cancel()
+        omdbSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            secretStore.setOmdbKey(value)
+            omdbKeyField.value = null
+        }
     }
 
     fun clearTmdbKey() {
-        viewModelScope.launch { secretStore.setTmdbKey("") }
+        tmdbSaveJob?.cancel()
+        tmdbKeyField.value = ""
+        viewModelScope.launch {
+            secretStore.setTmdbKey("")
+            tmdbKeyField.value = null
+        }
     }
 
     fun clearOmdbKey() {
-        viewModelScope.launch { secretStore.setOmdbKey("") }
+        omdbSaveJob?.cancel()
+        omdbKeyField.value = ""
+        viewModelScope.launch {
+            secretStore.setOmdbKey("")
+            omdbKeyField.value = null
+        }
     }
 
     fun testTmdbKey() {
@@ -123,5 +169,9 @@ class OnboardingViewModel @Inject constructor(
                 onFailure = { it.message ?: it.javaClass.simpleName },
             )
         }
+    }
+
+    private companion object {
+        const val KEY_SAVE_DEBOUNCE_MS = 800L
     }
 }

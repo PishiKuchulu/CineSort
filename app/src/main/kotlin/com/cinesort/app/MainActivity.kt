@@ -1,9 +1,9 @@
 package com.cinesort.app
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
@@ -21,7 +21,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+// AppCompatActivity (review M11): per-app locales via AppCompatDelegate only
+// take effect on API 24-32 when the activity is an AppCompatActivity; the theme
+// already descends from Theme.AppCompat.
+class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository

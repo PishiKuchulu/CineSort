@@ -9,6 +9,7 @@ import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.usecase.EnsureLibraryRootsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +22,7 @@ import kotlinx.coroutines.launch
 data class RootsResultUi(
     val created: List<String>,
     val found: List<String>,
+    val error: String? = null,
 )
 
 data class SourcesUiState(
@@ -97,12 +99,23 @@ class SourcesViewModel @Inject constructor(
     /** Destination picked: persist it, then bootstrap the Movie / Tv series roots. */
     fun onDestinationPicked(uriString: String, name: String) {
         viewModelScope.launch {
-            libraryRepository.setDestination(uriString, name)
-            val result = ensureRoots(dirRefOf(uriString, name))
-            rootsResult.value = RootsResultUi(
-                created = result.created,
-                found = result.found,
-            )
+            // Bootstrap first, persist only on success (review H3): a bare launch
+            // used to crash the app when ensureRoots threw, after the destination
+            // had already been saved.
+            try {
+                val result = ensureRoots(dirRefOf(uriString, name))
+                libraryRepository.setDestination(uriString, name)
+                rootsResult.value = RootsResultUi(
+                    created = result.created,
+                    found = result.found,
+                )
+            } catch (e: IOException) {
+                rootsResult.value = RootsResultUi(
+                    created = emptyList(),
+                    found = emptyList(),
+                    error = e.message ?: e.javaClass.simpleName,
+                )
+            }
         }
     }
 

@@ -103,19 +103,25 @@ class AnchorMediaNameParser(
 
     // ---------------------------------------------------------------- Stage B
 
-    private val combinedEpisodeRegex = Regex("""^S(\d{1,2})E(\d{1,3})((?:E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
+    // Hyphenated forms (S01-E01, S01E01-E03) keep the hyphen inside the token, so
+    // the episode patterns allow one optional separator (spec 6.3-B, review M14).
+    private val combinedEpisodeRegex = Regex("""^S(\d{1,2})[._-]?E(\d{1,3})((?:[._-]?E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
     private val seasonOnlyTokenRegex = Regex("""^S(\d{1,2})$""", RegexOption.IGNORE_CASE)
-    private val episodeOnlyTokenRegex = Regex("""^E(\d{1,3})((?:E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
+    private val episodeOnlyTokenRegex = Regex("""^E(\d{1,3})((?:[._-]?E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
     private val xEpisodeRegex = Regex("""^(\d{1,2})x(\d{2,3})$""", RegexOption.IGNORE_CASE)
     private val extraEpisodeRegex = Regex("""^E(\d{1,3})$""", RegexOption.IGNORE_CASE)
     private val plainNumberRegex = Regex("""^\d{1,3}$""")
+    private val yearTokenRegex = Regex("""^(19|20)\d{2}$""")
+    private val extraEpisodeNumberRegex = Regex("""E(\d{1,3})""", RegexOption.IGNORE_CASE)
+    private val seasonWordRegex = Regex("""^Season$""", RegexOption.IGNORE_CASE)
+    private val whitespaceRegex = Regex("""\s+""")
 
     private fun findEpisodeMarker(tokens: List<Token>): EpisodeHit? {
         for (i in tokens.indices) {
             val text = tokens[i].text
             combinedEpisodeRegex.matchEntire(text)?.let { m ->
                 val episodes = mutableListOf(m.groupValues[2].toInt())
-                episodes += Regex("""E(\d{1,3})""", RegexOption.IGNORE_CASE)
+                episodes += extraEpisodeNumberRegex
                     .findAll(m.groupValues[3]).map { it.groupValues[1].toInt() }.toList()
                 var end = i
                 // Consume following pure E## tokens (S01E01 E02 style).
@@ -131,7 +137,7 @@ class AnchorMediaNameParser(
                 if (next != null) {
                     episodeOnlyTokenRegex.matchEntire(next.text)?.let { e ->
                         val episodes = mutableListOf(e.groupValues[1].toInt())
-                        episodes += Regex("""E(\d{1,3})""", RegexOption.IGNORE_CASE)
+                        episodes += extraEpisodeNumberRegex
                             .findAll(e.groupValues[2]).map { it.groupValues[1].toInt() }.toList()
                         return EpisodeHit(i, i + 1, m.groupValues[1].toInt(), episodes)
                     }
@@ -164,7 +170,7 @@ class AnchorMediaNameParser(
                 val next = tokens.getOrNull(i + 1)
                 if (next == null || !episodeOnlyTokenRegex.matches(next.text)) return true
             }
-            if (tokens[i].text.matches(Regex("""^Season$""", RegexOption.IGNORE_CASE))) {
+            if (tokens[i].text.matches(seasonWordRegex)) {
                 val next = tokens.getOrNull(i + 1)
                 if (next != null && plainNumberRegex.matches(next.text)) {
                     val after = tokens.getOrNull(i + 2)
@@ -193,20 +199,44 @@ class AnchorMediaNameParser(
 
     // ---------------------------------------------------------------- Stage C
 
+    /**
+     * Upper bound (exclusive) for the year search: the first resolution token, or
+     * the start of the first run of >= 2 consecutive release-noise tokens. A single
+     * source/codec word inside a title ("Charlotte's Web", "Dark Web") must not hide
+     * a year behind it (review H5).
+     */
+    private fun yearSearchBound(tokens: List<Token>): Int {
+        var runStart = -1
+        var runLength = 0
+        for ((idx, token) in tokens.withIndex()) {
+            if (NoiseVocabulary.isResolution(token.text)) return idx
+            if (NoiseVocabulary.isYearGuardNoise(token.text)) {
+                if (runLength == 0) runStart = idx
+                runLength++
+                if (runLength >= 2) return runStart
+            } else {
+                runLength = 0
+                runStart = -1
+            }
+        }
+        return Int.MAX_VALUE
+    }
+
     private fun detectMovie(
         fileName: String,
         cleaned: Cleaned,
         tokens: List<Token>,
     ): ParseResult.Movie? {
         val extraNoise = extraNoiseWords.map { it.lowercase(Locale.ROOT) }.toSet()
-        val noiseStart = tokens.indexOfFirst { NoiseVocabulary.isYearGuardNoise(it.text) }
-            .let { if (it == -1) Int.MAX_VALUE else it }
+        val noiseStart = yearSearchBound(tokens)
 
         val candidates = tokens.indices.filter { idx ->
             val year = yearValue(tokens[idx].text) ?: return@filter false
             if (idx >= noiseStart) return@filter false
-            // At least one non-noise token must precede the year (spec 6.3 C1).
-            tokens.subList(0, idx).any { !NoiseVocabulary.isNoise(it.text, extraNoise) }
+            // The year may not be the first token (spec 6.3 C1). A single title word
+            // that happens to be release vocabulary ("Cam", "Web") still counts as a
+            // preceding title token (review H5).
+            idx > 0
         }
         val yearIdx = candidates.lastOrNull()
         if (yearIdx != null) {
@@ -277,7 +307,12 @@ class AnchorMediaNameParser(
     // ---------------------------------------------------------------- Stage E
 
     private val bareEpisodeRegex = Regex("""^(?:E|Ep|Episode)?[ ._-]*(\d{1,3})$""", RegexOption.IGNORE_CASE)
-    private val seasonFolderRegex = Regex("""^(?:Season|S)[ ._-]?(\d{1,2})$""", RegexOption.IGNORE_CASE)
+    // Latin "Season 2"/"S02" plus the Persian "فصل ۲" form (review L4); the number
+    // may use Persian/Arabic-Indic digits and is folded before parsing.
+    private val seasonFolderRegex = Regex(
+        """^(?:Season|S)[ ._-]?(\d{1,2})$|^فصل[ ._-]?([0-9۰-۹٠-٩]{1,2})$""",
+        RegexOption.IGNORE_CASE,
+    )
 
     private fun bareEpisodeNumber(working: String): Int? {
         val trimmed = working.trim()
@@ -298,7 +333,10 @@ class AnchorMediaNameParser(
         for (folder in context.ancestors) {
             val seasonFolder = seasonFolderRegex.matchEntire(folder.trim())
             if (seasonFolder != null) {
-                if (season == null) season = seasonFolder.groupValues[1].toInt()
+                if (season == null) {
+                    val digits = seasonFolder.groupValues[1].ifEmpty { seasonFolder.groupValues[2] }
+                    season = NormalizedKey.foldDigits(digits).toIntOrNull()
+                }
                 continue
             }
             val folderTitle = cleanFolderTitle(folder)
@@ -393,7 +431,9 @@ class AnchorMediaNameParser(
         val strippedBracket = bracketPrefixRegex.replace(name, "")
         if (strippedBracket != name && hasAnyAnchor(strippedBracket)) name = strippedBracket
         val strippedDomain = domainPrefixRegex.replace(name, "")
-        if (strippedDomain != name && strippedDomain.isNotBlank() && hasAnyAnchor(strippedDomain)) {
+        if (strippedDomain != name && strippedDomain.isNotBlank() &&
+            hasAnchorAfterTitleToken(strippedDomain)
+        ) {
             name = strippedDomain
         }
         // A leftover leading bracketed chunk that hid the anchor check above still goes
@@ -407,6 +447,21 @@ class AnchorMediaNameParser(
         val tokens = tokenize(s)
         if (findEpisodeMarker(tokens) != null) return true
         return tokens.any { yearValue(it.text) != null }
+    }
+
+    /**
+     * True when [s] has an anchor (episode marker or year) that is NOT the first
+     * token — i.e. a title token survives before it. Guards the domain-prefix strip
+     * (review H6): "The.Net.1995…" strips to "1995…", whose only anchor is the year
+     * itself at index 0, so the strip must not happen.
+     */
+    private fun hasAnchorAfterTitleToken(s: String): Boolean {
+        val tokens = tokenize(s)
+        val episodeIdx = findEpisodeMarker(tokens)?.startToken
+        val yearIdx = tokens.indexOfFirst { yearValue(it.text) != null }
+            .takeIf { it >= 0 }
+        val anchorIdx = listOfNotNull(episodeIdx, yearIdx).minOrNull() ?: return false
+        return anchorIdx >= 1
     }
 
     /**
@@ -455,15 +510,15 @@ class AnchorMediaNameParser(
     // ---------------------------------------------------------------- helpers
 
     private fun yearValue(token: String): Int? {
-        if (!token.matches(Regex("""^(19|20)\d{2}$"""))) return null
-        val value = token.toInt()
+        if (!token.matches(yearTokenRegex)) return null
+        val value = token.toIntOrNull() ?: return null
         return if (value in 1900..(currentYear + 1)) value else null
     }
 
     private fun joinTokens(tokens: List<Token>): String? {
         if (tokens.isEmpty()) return null
         val joined = tokens.joinToString(" ") { it.text }
-            .replace(Regex("""\s+"""), " ")
+            .replace(whitespaceRegex, " ")
             .trim(' ', '-', '–', '_', '.')
         return joined.ifEmpty { null }
     }

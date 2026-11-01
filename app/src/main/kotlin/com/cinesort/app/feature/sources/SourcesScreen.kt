@@ -61,7 +61,9 @@ fun SourcesScreen(
     }
 
     val rootsMessage = state.rootsResult?.let { result ->
-        if (result.created.isEmpty() && result.found.isEmpty()) {
+        if (result.error != null) {
+            stringResource(R.string.roots_prepare_error, result.error)
+        } else if (result.created.isEmpty() && result.found.isEmpty()) {
             stringResource(R.string.sources_roots_none)
         } else {
             stringResource(

@@ -11,6 +11,8 @@ import com.cinesort.core.data.settings.AppSettings
 import com.cinesort.core.domain.journal.JournalStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +49,14 @@ class SettingsViewModel @Inject constructor(
 
     private val tmdbTest = MutableStateFlow<KeyTestUi?>(null)
     private val omdbTest = MutableStateFlow<KeyTestUi?>(null)
+    // Local text-field state for API keys (review M8): the field shows this
+    // override while typing; the encrypted store is written debounced, so a
+    // keystroke no longer round-trips through DataStore + Tink and back into
+    // the field (cursor jumps, dropped characters).
+    private val tmdbKeyField = MutableStateFlow<String?>(null)
+    private val omdbKeyField = MutableStateFlow<String?>(null)
+    private var tmdbSaveJob: Job? = null
+    private var omdbSaveJob: Job? = null
     private val testingTmdb = MutableStateFlow(false)
     private val testingOmdb = MutableStateFlow(false)
     private val cacheCleared = MutableStateFlow(false)
@@ -70,6 +80,12 @@ class SettingsViewModel @Inject constructor(
         .combine(testingTmdb) { state, testing -> state.copy(isTestingTmdb = testing) }
         .combine(testingOmdb) { state, testing -> state.copy(isTestingOmdb = testing) }
         .combine(cacheCleared) { state, cleared -> state.copy(cacheCleared = cleared) }
+        .combine(tmdbKeyField) { state, field ->
+            if (field != null) state.copy(tmdbKey = field) else state
+        }
+        .combine(omdbKeyField) { state, field ->
+            if (field != null) state.copy(omdbKey = field) else state
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -82,22 +98,44 @@ class SettingsViewModel @Inject constructor(
 
     fun onTmdbKeyChange(value: String) {
         tmdbTest.value = null
-        viewModelScope.launch { secretStore.setTmdbKey(value) }
+        tmdbKeyField.value = value
+        tmdbSaveJob?.cancel()
+        tmdbSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            secretStore.setTmdbKey(value)
+            tmdbKeyField.value = null
+        }
     }
 
     fun onOmdbKeyChange(value: String) {
         omdbTest.value = null
-        viewModelScope.launch { secretStore.setOmdbKey(value) }
+        omdbKeyField.value = value
+        omdbSaveJob?.cancel()
+        omdbSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            secretStore.setOmdbKey(value)
+            omdbKeyField.value = null
+        }
     }
 
     fun clearTmdbKey() {
         tmdbTest.value = null
-        viewModelScope.launch { secretStore.setTmdbKey("") }
+        tmdbSaveJob?.cancel()
+        tmdbKeyField.value = ""
+        viewModelScope.launch {
+            secretStore.setTmdbKey("")
+            tmdbKeyField.value = null
+        }
     }
 
     fun clearOmdbKey() {
         omdbTest.value = null
-        viewModelScope.launch { secretStore.setOmdbKey("") }
+        omdbSaveJob?.cancel()
+        omdbKeyField.value = ""
+        viewModelScope.launch {
+            secretStore.setOmdbKey("")
+            omdbKeyField.value = null
+        }
     }
 
     fun testTmdbKey() {
@@ -201,5 +239,9 @@ class SettingsViewModel @Inject constructor(
             )
         }
         return builder.toString()
+    }
+
+    private companion object {
+        const val KEY_SAVE_DEBOUNCE_MS = 800L
     }
 }

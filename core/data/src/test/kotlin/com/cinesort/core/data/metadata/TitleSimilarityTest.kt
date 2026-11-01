@@ -23,6 +23,14 @@ class TitleSimilarityTest {
     }
 
     @Test
+    fun moreSpecificQueryDoesNotPerfectlyMatchSubsetCandidate() {
+        // Review H9 regression: candidate tokens strictly inside the query's must
+        // not score a perfect match.
+        assertTrue(TitleSimilarity.similarity("Elite Force", "Elite") < 0.85)
+        assertTrue(TitleSimilarity.similarity("Fall 2", "Fall") < 0.85)
+    }
+
+    @Test
     fun smallTypoStillScoresHigh() {
         assertTrue(TitleSimilarity.similarity("Blade Runner", "Blade Runer") >= 0.85)
     }

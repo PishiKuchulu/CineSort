@@ -117,6 +117,16 @@ fun OnboardingScreen(
                         Button(onClick = { destinationPicker.launch(null) }) {
                             Text(stringResource(R.string.onboarding_pick_destination))
                         }
+                        if (state.rootsError != null) {
+                            Text(
+                                text = stringResource(
+                                    R.string.roots_prepare_error,
+                                    state.rootsError,
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         val destination = state.destination
                         if (destination != null) {
                             Text(
