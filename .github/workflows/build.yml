@@ -43,13 +43,36 @@ jobs:
       - name: Generate launcher icons
         run: |
           base64 -d app/art/launcher-art.b64 > /tmp/launcher-art.jpg
-          for spec in "mdpi 48" "hdpi 72" "xhdpi 96" "xxhdpi 144" "xxxhdpi 192"; do
-            set -- $spec
-            mkdir -p "app/src/main/res/mipmap-$1"
-            convert /tmp/launcher-art.jpg -resize "${2}x${2}" "app/src/main/res/mipmap-$1/ic_launcher.png"
-            cp "app/src/main/res/mipmap-$1/ic_launcher.png" "app/src/main/res/mipmap-$1/ic_launcher_round.png"
-          done
-          convert /tmp/launcher-art.jpg -resize 432x432 app/src/main/res/mipmap-xxxhdpi/ic_launcher_art.png
+          cat > /tmp/GenIcons.java <<'JAVA_EOF'
+          import java.awt.Graphics2D;
+          import java.awt.RenderingHints;
+          import java.awt.image.BufferedImage;
+          import java.io.File;
+          import javax.imageio.ImageIO;
+          public class GenIcons {
+              static void write(BufferedImage src, int size, File out) throws Exception {
+                  BufferedImage dst = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
+                  Graphics2D g = dst.createGraphics();
+                  g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                  g.drawImage(src, 0, 0, size, size, null);
+                  g.dispose();
+                  out.getParentFile().mkdirs();
+                  ImageIO.write(dst, "png", out);
+              }
+              public static void main(String[] args) throws Exception {
+                  BufferedImage src = ImageIO.read(new File("/tmp/launcher-art.jpg"));
+                  String base = "app/src/main/res/mipmap-";
+                  String[][] specs = {{"mdpi", "48"}, {"hdpi", "72"}, {"xhdpi", "96"}, {"xxhdpi", "144"}, {"xxxhdpi", "192"}};
+                  for (String[] sp : specs) {
+                      int size = Integer.parseInt(sp[1]);
+                      write(src, size, new File(base + sp[0] + "/ic_launcher.png"));
+                      write(src, size, new File(base + sp[0] + "/ic_launcher_round.png"));
+                  }
+                  write(src, 432, new File(base + "xxxhdpi/ic_launcher_art.png"));
+              }
+          }
+          JAVA_EOF
+          java -Djava.awt.headless=true /tmp/GenIcons.java
 
       - name: Build debug APK and run unit tests
         run: ./gradlew assembleDebug testDebugUnitTest lint detekt --stacktrace
