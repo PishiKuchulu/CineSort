@@ -15,3 +15,6 @@ captures/
 # Binary assets are not tracked; CI regenerates/fetches them (docs/DECISIONS.md)
 gradle/wrapper/gradle-wrapper.jar
 core/designsystem/src/main/res/font/*.ttf
+app/src/main/res/mipmap-*/ic_launcher.png
+app/src/main/res/mipmap-*/ic_launcher_round.png
+app/src/main/res/mipmap-*/ic_launcher_art.png

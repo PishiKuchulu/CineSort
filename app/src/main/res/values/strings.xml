@@ -39,6 +39,13 @@
     <string name="home_undo_done">Last run was undone: %1$d files moved back.</string>
     <string name="home_undo_failed">Undo finished with problems. Check History for details.</string>
     <string name="home_warnings_title">Needs attention</string>
+    <string name="home_setup_title">Get set up</string>
+    <string name="home_setup_destination_todo">Choose a destination folder</string>
+    <string name="home_setup_destination_done">Destination folder is set</string>
+    <string name="home_setup_sources_todo">Add at least one source folder</string>
+    <string name="home_setup_sources_done">Source folders added</string>
+    <string name="home_setup_api_todo">Add a TMDB or OMDb API key (for genres &amp; ratings)</string>
+    <string name="home_setup_api_done">API key is set</string>
     <string name="home_warning_no_destination">No destination folder is chosen yet.</string>
     <string name="home_warning_no_sources">No source folders yet. Add one from the Sources tab.</string>
     <string name="home_warning_source_needs_access">A source folder needs access again. Open Sources to re-grant it.</string>

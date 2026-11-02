@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -85,14 +85,6 @@ fun SourcesScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.sources_title)) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { sourcePicker.launch(null) }) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.sources_add_source),
-                )
-            }
-        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -111,6 +103,7 @@ fun SourcesScreen(
                 val destination = state.destination
                 if (destination == null) {
                     EmptyState(
+                        compact = true,
                         icon = Icons.Filled.FolderOpen,
                         title = stringResource(R.string.sources_no_destination_title),
                         message = stringResource(R.string.sources_no_destination_message),
@@ -138,9 +131,16 @@ fun SourcesScreen(
                 }
             }
 
+            item {
+                Text(
+                    text = stringResource(R.string.tab_sources),
+                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                )
+            }
             if (state.sources.isEmpty()) {
                 item {
                     EmptyState(
+                        compact = true,
                         icon = Icons.Filled.FolderOpen,
                         title = stringResource(R.string.sources_empty_title),
                         message = stringResource(R.string.sources_empty_message),
@@ -180,6 +180,21 @@ fun SourcesScreen(
                             )
                         },
                     )
+                }
+                item {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { sourcePicker.launch(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                        )
+                        Text(
+                            text = stringResource(R.string.sources_add_source),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 }
             }
         }

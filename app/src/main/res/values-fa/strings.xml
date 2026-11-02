@@ -39,6 +39,13 @@
     <string name="home_undo_done">آخرین اجرا بازگردانی شد: %1$d فایل برگشت.</string>
     <string name="home_undo_failed">بازگردانی با چند مشکل تمام شد. جزئیات را در تاریخچه ببینید.</string>
     <string name="home_warnings_title">نیازمند توجه</string>
+    <string name="home_setup_title">راه‌اندازی اولیه</string>
+    <string name="home_setup_destination_todo">انتخاب پوشه مقصد</string>
+    <string name="home_setup_destination_done">پوشه مقصد انتخاب شده است</string>
+    <string name="home_setup_sources_todo">افزودن حداقل یک پوشه مبدأ</string>
+    <string name="home_setup_sources_done">پوشه‌های مبدأ اضافه شده‌اند</string>
+    <string name="home_setup_api_todo">افزودن کلید API از TMDB یا OMDb (برای ژانر و امتیاز)</string>
+    <string name="home_setup_api_done">کلید API ثبت شده است</string>
     <string name="home_warning_no_destination">هنوز پوشه‌ی مقصدی انتخاب نشده است.</string>
     <string name="home_warning_no_sources">هنوز پوشه‌ی مرجعی نیست. از زبانه‌ی پوشه‌های مرجع یکی اضافه کنید.</string>
     <string name="home_warning_source_needs_access">دسترسی یک پوشه‌ی مرجع از دست رفته است. از بخش پوشه‌های مرجع دوباره دسترسی بدهید.</string>

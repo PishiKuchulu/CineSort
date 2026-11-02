@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Pre-API-26 launcher icon: the same vectors the adaptive icon uses.
-     Raster mipmap PNGs are not tracked (binary assets stay out of git). -->
+<!-- Pre-API-26 launcher icon: the full-bleed artwork bitmap (the PNG itself
+     is generated in CI from app/art/launcher-art.b64; see build.yml). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/ic_launcher_background" />
-    <item android:drawable="@drawable/ic_launcher_foreground" />
+    <item android:drawable="@drawable/ic_launcher_art" />
 </layer-list>

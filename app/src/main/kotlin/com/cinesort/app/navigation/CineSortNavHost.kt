@@ -140,6 +140,7 @@ fun CineSortNavHost(startOnOnboarding: Boolean, persianDigits: Boolean) {
                 HomeScreen(
                     onScanClick = { navController.navigate(Routes.SCAN) },
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
+                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 )
             }
             composable(Routes.SOURCES) {

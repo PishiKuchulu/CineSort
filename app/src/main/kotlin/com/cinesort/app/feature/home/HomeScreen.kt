@@ -7,16 +7,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -128,6 +134,7 @@ fun formatRunDate(epochMillis: Long, jalali: Boolean, persianDigits: Boolean): S
 fun HomeScreen(
     onScanClick: () -> Unit,
     onOpenSources: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -172,11 +179,6 @@ fun HomeScreen(
                     FilmPerforationStrip()
                     Column(Modifier.padding(20.dp)) {
                         Text(
-                            text = stringResource(R.string.home_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
                             text = stringResource(R.string.home_subtitle),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -194,42 +196,47 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         }
-                        if (!state.canScan) {
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                text = stringResource(
-                                    if (state.destination == null) {
-                                        R.string.home_scan_disabled_no_destination
-                                    } else {
-                                        R.string.home_scan_disabled_no_sources
-                                    },
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
                 }
             }
 
-            // Warnings
-            val warnings = mutableListOf<String>()
-            if (state.destination == null) {
-                warnings += stringResource(R.string.home_warning_no_destination)
-            }
-            if (state.sourcesCount == 0) {
-                warnings += stringResource(R.string.home_warning_no_sources)
-            }
-            if (state.anySourceInvalid) {
-                warnings += stringResource(R.string.home_warning_source_needs_access)
-            }
-            if (state.destination != null && !state.destinationValid) {
-                warnings += stringResource(R.string.home_warning_destination_needs_access)
-            }
-            if (!state.hasApiKey) {
-                warnings += stringResource(R.string.home_warning_no_api_key)
-            }
-            if (warnings.isNotEmpty()) {
+            // Setup checklist: replaces the old warnings card. Each pending
+            // step navigates to the screen that completes it; the card hides
+            // itself once everything is done.
+            val steps = listOf(
+                SetupStep(
+                    done = state.destination != null && state.destinationValid,
+                    text = when {
+                        state.destination == null ->
+                            stringResource(R.string.home_setup_destination_todo)
+                        !state.destinationValid ->
+                            stringResource(R.string.home_warning_destination_needs_access)
+                        else -> stringResource(R.string.home_setup_destination_done)
+                    },
+                    onClick = onOpenSources,
+                ),
+                SetupStep(
+                    done = state.sourcesCount > 0 && !state.anySourceInvalid,
+                    text = when {
+                        state.anySourceInvalid ->
+                            stringResource(R.string.home_warning_source_needs_access)
+                        state.sourcesCount == 0 ->
+                            stringResource(R.string.home_setup_sources_todo)
+                        else -> stringResource(R.string.home_setup_sources_done)
+                    },
+                    onClick = onOpenSources,
+                ),
+                SetupStep(
+                    done = state.hasApiKey,
+                    text = if (state.hasApiKey) {
+                        stringResource(R.string.home_setup_api_done)
+                    } else {
+                        stringResource(R.string.home_setup_api_todo)
+                    },
+                    onClick = onOpenSettings,
+                ),
+            )
+            if (steps.any { !it.done }) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -237,29 +244,22 @@ fun HomeScreen(
                     shape = MaterialTheme.shapes.large,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.padding(20.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(
-                                imageVector = Icons.Filled.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                            Text(
-                                text = stringResource(R.string.home_warnings_title),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.home_setup_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 2.dp),
+                        )
+                        steps.forEachIndexed { index, step ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                            }
+                            SetupStepRow(step)
                         }
-                        Spacer(Modifier.height(10.dp))
-                        warnings.forEach { warning ->
-                            Text(
-                                text = "• " + warning,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Spacer(Modifier.height(6.dp))
-                        }
-                        OutlinedButton(onClick = onOpenSources) {
-                            Text(stringResource(R.string.tab_sources))
-                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -365,6 +365,54 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** One row of the Home setup checklist. */
+private data class SetupStep(
+    val done: Boolean,
+    val text: String,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun SetupStepRow(step: SetupStep) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = step.onClick)
+            .padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = if (step.done) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            tint = if (step.done) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = step.text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (step.done) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.weight(1f),
+        )
+        if (!step.done) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
