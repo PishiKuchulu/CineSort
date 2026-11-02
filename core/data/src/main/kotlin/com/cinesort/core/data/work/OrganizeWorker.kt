@@ -347,6 +347,7 @@ class OrganizeWorker @AssistedInject constructor(
     }
 
     companion object {
+        const val POSTER_FILE_NAME = "poster.jpg"
         const val CHANNEL_ID = "organize"
         const val KEY_RUN_ID = "runId"
         const val KEY_PROGRESS = "progress"
