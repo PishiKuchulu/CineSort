@@ -2,7 +2,7 @@ package com.cinesort.core.data.metadata
 
 import com.cinesort.core.data.db.MetadataCacheDao
 import com.cinesort.core.data.db.MetadataCacheEntity
-import com.cinesort.core.data.repository.SettingsRepository
+import com.cinesort.core.data.repository.SettingsAccess
 import com.cinesort.core.data.settings.AppSettings
 import com.cinesort.core.data.settings.RatingSourcePreference
 import com.cinesort.core.domain.planner.ItemType
@@ -88,7 +88,7 @@ private data class CachedMetadata(
  */
 class MetadataService(
     private val cacheDao: MetadataCacheDao,
-    private val settingsRepository: SettingsRepository? = null,
+    private val settingsRepository: SettingsAccess? = null,
     private val tmdbBaseUrl: String = TMDB_BASE_URL,
     private val omdbBaseUrl: String = OMDB_BASE_URL,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },

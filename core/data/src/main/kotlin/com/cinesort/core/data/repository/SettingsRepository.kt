@@ -29,7 +29,7 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 )
 
 /** DataStore-backed settings (spec sections 11, 12). */
-class SettingsRepository(context: Context) {
+class SettingsRepository(context: Context) : SettingsAccess {
 
     private val dataStore: DataStore<Preferences> = context.applicationContext.settingsDataStore
 
@@ -44,9 +44,9 @@ class SettingsRepository(context: Context) {
         }
         .map { prefs -> prefs.toAppSettings() }
 
-    suspend fun current(): AppSettings = settings.first()
+    override suspend fun current(): AppSettings = settings.first()
 
-    suspend fun update(block: (AppSettings) -> AppSettings) {
+    override suspend fun update(block: (AppSettings) -> AppSettings) {
         dataStore.edit { prefs ->
             prefs.writeAppSettings(block(prefs.toAppSettings()))
         }

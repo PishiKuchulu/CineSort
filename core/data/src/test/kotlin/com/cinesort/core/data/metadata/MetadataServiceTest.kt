@@ -2,7 +2,8 @@ package com.cinesort.core.data.metadata
 
 import com.cinesort.core.data.db.MetadataCacheDao
 import com.cinesort.core.data.db.MetadataCacheEntity
-import com.cinesort.core.data.repository.SettingsRepository
+import com.cinesort.core.data.repository.SettingsAccess
+import com.cinesort.core.data.settings.AppSettings
 import com.cinesort.core.data.settings.RatingSourcePreference
 import com.cinesort.core.domain.planner.ItemType
 import com.cinesort.core.domain.planner.RatingSource
@@ -23,6 +24,17 @@ import org.junit.jupiter.api.Test
  * success, not-found, quota, 429 handling, malformed payloads, and the cache.
  */
 class MetadataServiceTest {
+
+    /** In-memory settings seam: the real repository needs an Android Context. */
+    private class FakeSettingsAccess : SettingsAccess {
+        private var state = AppSettings()
+
+        override suspend fun current(): AppSettings = state
+
+        override suspend fun update(block: (AppSettings) -> AppSettings) {
+            state = block(state)
+        }
+    }
 
     private class FakeCacheDao : MetadataCacheDao {
         val rows = mutableMapOf<String, MetadataCacheEntity>()
@@ -277,7 +289,7 @@ class MetadataServiceTest {
 
     @Test
     fun `cache key separates rating source preferences`() = runTest {
-        val repo = SettingsRepository()
+        val repo = FakeSettingsAccess()
         val svc = MetadataService(
             cacheDao = dao,
             settingsRepository = repo,
