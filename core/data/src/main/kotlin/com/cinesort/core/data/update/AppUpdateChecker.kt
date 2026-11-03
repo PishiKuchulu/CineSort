@@ -97,7 +97,7 @@ object AppUpdateChecker {
      * (v1.0.7): a bare "something went wrong" hides exactly the failures —
      * rate limits, proxy blocks — that a user can act on.
      */
-    internal fun httpCodeIn(message: String?): Int? =
+    fun httpCodeIn(message: String?): Int? =
         message?.let {
             Regex("""\(HTTP (\d{3})\)""").find(it)?.groupValues?.get(1)?.toIntOrNull()
         }
