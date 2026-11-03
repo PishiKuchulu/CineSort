@@ -3,8 +3,16 @@ package com.cinesort.app.feature.settings
 import android.content.Intent
 import android.net.Uri
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,9 +25,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,9 +57,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -76,23 +88,80 @@ import kotlinx.coroutines.launch
 private const val TMDB_HELP_URL = "https://www.themoviedb.org/settings/api"
 private const val OMDB_HELP_URL = "https://www.omdbapi.com/apikey.aspx"
 
+/**
+ * One Settings section as an accordion card (owner-requested style,
+ * v1.0.8): a tall, fully rounded card whose header — the section title
+ * in titleLarge plus a rotating chevron — expands and collapses the
+ * section's controls, so the nine sections read as a short list of
+ * cards instead of one long flat scroll. Each section expands
+ * independently; the state survives recreation.
+ */
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+private fun SettingsSection(
+    title: String,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "settingsSectionChevron",
     )
-}
-
-@Composable
-private fun SettingsCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val stateLabel = stringResource(
+        if (expanded) {
+            R.string.preview_group_expanded
+        } else {
+            R.string.preview_group_collapsed
+        },
+    )
+    val toggleLabel = stringResource(
+        if (expanded) R.string.common_collapse else R.string.common_expand,
+    )
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        shape = RoundedCornerShape(28.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(20.dp), content = content)
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .semantics { stateDescription = stateLabel }
+                    .padding(horizontal = 24.dp, vertical = 22.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = toggleLabel,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .rotate(chevronRotation),
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = 20.dp,
+                    ),
+                    content = content,
+                )
+            }
+        }
     }
 }
 
@@ -141,7 +210,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // 0. Storage recovery notice (section-4 audit): one-time and
             // dismissible; appears only when a store failed to read and
@@ -185,9 +254,8 @@ fun SettingsScreen(
                 }
             }
             // 1. Language
-            item { SectionHeader(stringResource(R.string.settings_language)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_language), initiallyExpanded = true) {
                     // No in-card title: the section header above already
                     // names the section (granular audit 1-7 — the language
                     // card used to repeat its own name inside).
@@ -247,9 +315,8 @@ fun SettingsScreen(
                     )
                 }
             }
-            item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_section_appearance)) {
                     Text(
                         text = stringResource(R.string.settings_theme),
                         style = MaterialTheme.typography.bodyLarge,
@@ -301,9 +368,8 @@ fun SettingsScreen(
             }
 
             // 2. Folders
-            item { SectionHeader(stringResource(R.string.settings_folders)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_folders)) {
                     Text(
                         text = stringResource(R.string.settings_folders_destination),
                         style = MaterialTheme.typography.bodyLarge,
@@ -322,9 +388,8 @@ fun SettingsScreen(
             }
 
             // 3. Naming
-            item { SectionHeader(stringResource(R.string.settings_naming)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_naming)) {
                     Text(
                         text = stringResource(R.string.preview_filter_movies),
                         style = MaterialTheme.typography.titleSmall,
@@ -436,9 +501,8 @@ fun SettingsScreen(
             }
 
             // 4. API keys
-            item { SectionHeader(stringResource(R.string.settings_section_api_keys)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_section_api_keys)) {
                     ApiKeyField(
                         label = stringResource(R.string.settings_tmdb_key),
                         value = state.tmdbKey,
@@ -496,9 +560,8 @@ fun SettingsScreen(
                     )
                 }
             }
-            item { SectionHeader(stringResource(R.string.settings_metadata)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_metadata)) {
                     Spacer(Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.settings_rating_source),
@@ -604,9 +667,8 @@ fun SettingsScreen(
             }
 
             // 5. Safety & behavior
-            item { SectionHeader(stringResource(R.string.settings_safety)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_safety)) {
                     Text(
                         text = stringResource(R.string.settings_sub_scanning),
                         style = MaterialTheme.typography.titleSmall,
@@ -660,10 +722,7 @@ fun SettingsScreen(
                         increaseLabel = stringResource(R.string.common_increase),
                         persianDigits = settings.persianDigits,
                     )
-                }
-            }
-            item {
-                SettingsCard {
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.settings_sub_organizing),
                         style = MaterialTheme.typography.titleSmall,
@@ -740,9 +799,8 @@ fun SettingsScreen(
             }
 
             // 6. Advanced
-            item { SectionHeader(stringResource(R.string.settings_advanced)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_advanced)) {
                     // The fields bind the ViewModel's local (debounced)
                     // values, not the settings flow (audit B.10): typing no
                     // longer round-trips through DataStore per keystroke.
@@ -884,9 +942,8 @@ fun SettingsScreen(
             }
 
             // 7. About
-            item { SectionHeader(stringResource(R.string.settings_about)) }
             item {
-                SettingsCard {
+                SettingsSection(title = stringResource(R.string.settings_about)) {
                     Text(
                         text = AppInfo.APP_NAME,
                         style = MaterialTheme.typography.titleLarge,
