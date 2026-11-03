@@ -8,6 +8,8 @@ import androidx.room.RoomDatabase
  * v2: operations.sourceFileId (review H7) — see MIGRATION_1_2 in DataModule.
  * v3: execution_drafts.posterUrl (optional poster download) — see MIGRATION_2_3.
  * v4: operations.isPoster (journaled poster downloads) — see MIGRATION_3_4.
+ * v5: runs.destinationId/destinationName (the run's own destination root,
+ * recorded for Undo — audit B.8) — see MIGRATION_4_5.
  */
 @Database(
     entities = [
@@ -19,7 +21,7 @@ import androidx.room.RoomDatabase
         OperationEntity::class,
         ExecutionDraftEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class CineSortDatabase : RoomDatabase() {

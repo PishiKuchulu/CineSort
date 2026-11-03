@@ -17,8 +17,9 @@ class RunDraftRepository(
     private val draftDao: ExecutionDraftDao,
 ) {
     suspend fun writeDrafts(runId: String, drafts: List<ExecutionDraftEntity>) {
-        draftDao.clearRun(runId)
-        if (drafts.isNotEmpty()) draftDao.insertAll(drafts)
+        // One transaction (section-4 audit): the previous clear-then-insert
+        // pair lost every draft of the run if the process died in between.
+        draftDao.replaceRun(runId, drafts)
     }
 
     /** Builds and stores drafts straight from planned items. */
@@ -42,7 +43,11 @@ class RunDraftRepository(
     suspend fun writeRetryDrafts(newRunId: String, operations: List<OperationRecord>) {
         val byItem = operations.groupBy { it.itemId }
         val drafts = byItem.values.mapNotNull { itemOps ->
-            val main = itemOps.firstOrNull { !it.isCompanion } ?: return@mapNotNull null
+            // The main op is neither a companion nor a poster row: a poster
+            // op picked as "main" would retry moving poster.jpg itself
+            // (audit A.3-3/A.3-10 hardening; the session also filters).
+            val main = itemOps.firstOrNull { !it.isCompanion && !it.isPoster }
+                ?: return@mapNotNull null
             val companions = itemOps.filter { it.isCompanion }
             // Prefer the file id recorded at execution time (review H7); the
             // name-based reconstruction is only a fallback for pre-v2 journals.

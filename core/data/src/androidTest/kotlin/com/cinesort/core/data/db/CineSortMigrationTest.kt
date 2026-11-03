@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.cinesort.core.data.di.MIGRATION_1_2
 import com.cinesort.core.data.di.MIGRATION_2_3
 import com.cinesort.core.data.di.MIGRATION_3_4
+import com.cinesort.core.data.di.MIGRATION_4_5
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -23,8 +24,9 @@ import org.junit.runner.RunWith
  * v1 entity definitions — the current entities minus the later additions
  * (v2: `operations.sourceFileId` + the `source_folders` unique index and its
  * duplicate cleanup; v3: `execution_drafts.posterUrl`; v4:
- * `operations.isPoster`) — creates a real v1 database file with that DDL,
- * seeds it, and then opens it through Room with all three migrations
+ * `operations.isPoster`; v5: `runs.destinationId`/`destinationName`) —
+ * creates a real v1 database file with that DDL,
+ * seeds it, and then opens it through Room with all four migrations
  * registered. Room's own post-migration schema validation runs on open, so a
  * migration that drifts from the entities fails here even before the explicit
  * assertions below.
@@ -51,7 +53,7 @@ class CineSortMigrationTest {
     }
 
     @Test
-    fun migrate1To4_reachesCurrentSchemaAndPreservesRows() {
+    fun migrate1To5_reachesCurrentSchemaAndPreservesRows() {
         val db = openMigratedDatabase()
         val sqlite = db.openHelper.readableDatabase
 
@@ -64,13 +66,27 @@ class CineSortMigrationTest {
             "posterUrl" in columnNames(sqlite, "execution_drafts"),
         )
 
+        // v5 columns exist on runs and pre-v5 rows read back with the empty
+        // fallback (callers then use the current destination for them).
+        val runColumns = columnNames(sqlite, "runs")
+        assertTrue("destinationId missing: $runColumns", "destinationId" in runColumns)
+        assertTrue("destinationName missing: $runColumns", "destinationName" in runColumns)
+        assertEquals(
+            "",
+            queryString(
+                sqlite,
+                "SELECT destinationId FROM runs WHERE id = 'run-1'",
+                emptyArray(),
+            ),
+        )
+
         // v2 unique index on source_folders.uriString exists and is unique.
         val sourceFolderIndices = indices(sqlite, "source_folders")
         val unique = sourceFolderIndices["index_source_folders_uriString"]
         assertEquals("unique index on uriString", true, unique)
 
         // Migration path was fully applied.
-        assertEquals(4, userVersion(sqlite))
+        assertEquals(5, userVersion(sqlite))
 
         // Seeded data survived; the duplicate source folder collapsed to the
         // first row (the v1 -> v2 cleanup keeps MIN(id) per uriString).
@@ -156,9 +172,9 @@ class CineSortMigrationTest {
 
     private fun openMigratedDatabase(): CineSortDatabase {
         val db = Room.databaseBuilder(context, CineSortDatabase::class.java, DB_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
-        // Force the open: runs the 1 -> 2 -> 3 -> 4 migration path plus
+        // Force the open: runs the 1 -> 2 -> 3 -> 4 -> 5 migration path plus
         // Room's schema validation against the current entities.
         db.openHelper.writableDatabase
         database = db
@@ -220,7 +236,8 @@ class CineSortMigrationTest {
          * The v1 schema, exactly as Room 2.6 generates it from the v1
          * entities: current [com.cinesort.core.data.db] entities minus
          * `operations.sourceFileId` (v2), `operations.isPoster` (v4),
-         * `execution_drafts.posterUrl` (v3) and the `source_folders`
+         * `execution_drafts.posterUrl` (v3), `runs.destinationId` /
+         * `runs.destinationName` (v5) and the `source_folders`
          * unique index (v2, created by the migration after its cleanup).
          */
         val V1_DDL = listOf(

@@ -80,6 +80,20 @@ and switch on the genre/rating options in **Settings → Naming**.
   smarter title matching for the *Needs review* items.
 - No key? No problem — everything else works completely offline.
 
+## 📝 Good to know
+
+A few parser limits worth knowing, so nothing surprises you:
+
+- **Episode ranges are expanded up to 50 episodes.** A file name claiming a
+  wider range (for example `S01E01-E80`) is *not* auto-expanded — the item
+  lands in **Needs review** so you can correct it by hand.
+- **Library folder names are capped at 240 bytes** (a filesystem limit).
+  With very long titles, the genre/rating decorations are dropped first so
+  the title and year always fit.
+- **Website prefixes are stripped only when they look like a domain** at the
+  very start of the file name (for example `www.example.com - Movie.mkv`).
+  A title that merely contains dots is left as-is.
+
 ## 📲 Install
 
 1. Go to the [**Releases**](../../releases) page.

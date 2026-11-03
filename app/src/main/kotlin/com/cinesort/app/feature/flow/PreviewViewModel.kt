@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class PreviewFilter { ALL, MOVIES, SERIES, NEEDS_REVIEW, CONFLICTS, SKIPPED }
+enum class PreviewFilter { ALL, MOVIES, SERIES, NEEDS_REVIEW, CONFLICTS, SKIPPED, ALREADY }
 
 data class PreviewUiState(
     val session: com.cinesort.app.orchestration.SessionState =
@@ -30,6 +30,7 @@ data class PreviewUiState(
     val query: String = "",
     val collapsedGroups: Set<String> = emptySet(),
     val editingItemId: String? = null,
+    val editApplyFailed: Boolean = false,
     val candidates: List<MetadataCandidate> = emptyList(),
     val candidatesSearched: Boolean = false,
     val isSearchingCandidates: Boolean = false,
@@ -49,6 +50,7 @@ class PreviewViewModel @Inject constructor(
     private val query = MutableStateFlow("")
     private val collapsedGroups = MutableStateFlow<Set<String>>(emptySet())
     private val editingItemId = MutableStateFlow<String?>(null)
+    private val editApplyFailed = MutableStateFlow(false)
     private val candidates = MutableStateFlow<List<MetadataCandidate>>(emptyList())
     private val candidatesSearched = MutableStateFlow(false)
     private val searching = MutableStateFlow(false)
@@ -71,6 +73,7 @@ class PreviewViewModel @Inject constructor(
     }.combine(query) { state, value -> state.copy(query = value) }
         .combine(collapsedGroups) { state, value -> state.copy(collapsedGroups = value) }
         .combine(editingItemId) { state, value -> state.copy(editingItemId = value) }
+        .combine(editApplyFailed) { state, value -> state.copy(editApplyFailed = value) }
         .combine(candidates) { state, value -> state.copy(candidates = value) }
         .combine(candidatesSearched) { state, value ->
             state.copy(candidatesSearched = value)
@@ -116,8 +119,20 @@ class PreviewViewModel @Inject constructor(
         applyToSeries: Boolean,
         remember: Boolean,
     ) {
-        session.applyEdit(itemId, edit, applyToSeries, remember)
+        // The session reports whether the edit landed (audit B.5); a
+        // silently dropped edit now surfaces as a message on the screen.
+        val applied = session.applyEdit(itemId, edit, applyToSeries, remember)
         editingItemId.value = null
+        if (!applied) editApplyFailed.value = true
+    }
+
+    fun consumeEditApplyFailed() {
+        editApplyFailed.value = false
+    }
+
+    /** Preview entered: pick up any settings changed elsewhere (audit B.5). */
+    fun onEnter() {
+        session.syncSettingsAndReplanIfChanged()
     }
 
     fun setConflictChoice(itemId: String?, choice: ConflictChoice) {

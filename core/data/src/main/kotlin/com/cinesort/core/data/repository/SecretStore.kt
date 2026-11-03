@@ -36,6 +36,24 @@ class SecretStore(context: Context) {
     private val appContext: Context = context.applicationContext
     private val dataStore: DataStore<Preferences> = appContext.secretsDataStore
 
+    // Recovery signal (section-4 audit): a key that fails to decrypt
+    // (invalidated Keystore entry, corrupt ciphertext) used to read back
+    // as "" — indistinguishable from "no key entered". The failure now
+    // also sets the persisted flag Settings surfaces as a one-time
+    // notice. Signalled at most once per process; the flag itself is
+    // persisted until the user dismisses it.
+    private val storageHealthStore = StorageHealthStore(appContext)
+
+    @Volatile
+    private var unreadableSignalled = false
+
+    private fun signalSecretsUnreadable() {
+        if (!unreadableSignalled) {
+            unreadableSignalled = true
+            storageHealthStore.markSecretsUnreadable()
+        }
+    }
+
     val tmdbKey: Flow<String> = keyFlow(TMDB_KEY)
 
     val omdbKey: Flow<String> = keyFlow(OMDB_KEY)
@@ -76,6 +94,10 @@ class SecretStore(context: Context) {
             .catch { error ->
                 if (error is IOException) {
                     Timber.w(error, "secret read failed")
+                    // A stored ciphertext we cannot even read counts as
+                    // unreadable secrets (section-4 audit) — same signal
+                    // as a decryption failure.
+                    signalSecretsUnreadable()
                     emit(emptyPreferences())
                 } else {
                     throw error
@@ -87,14 +109,22 @@ class SecretStore(context: Context) {
             .flowOn(Dispatchers.IO)
 
     private fun decrypt(encoded: String?): String {
+        // Truly empty storage is not a failure and never signals.
         if (encoded.isNullOrBlank()) return ""
-        val aead = aead() ?: return ""
+        val aead = aead()
+        if (aead == null) {
+            // Ciphertext exists but the keyset/master key is gone
+            // (Keystore invalidated): the keys are unreadable, not unset.
+            signalSecretsUnreadable()
+            return ""
+        }
         return try {
             val cipherBytes = Base64.decode(encoded, Base64.NO_WRAP)
             val plainBytes = aead.decrypt(cipherBytes, EMPTY_AAD)
             String(plainBytes, Charsets.UTF_8)
         } catch (e: Exception) {
             Timber.w(e, "secret decryption failed")
+            signalSecretsUnreadable()
             ""
         }
     }

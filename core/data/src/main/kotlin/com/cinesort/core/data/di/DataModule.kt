@@ -71,6 +71,14 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
     }
 }
 
+/** v5: runs record their destination root so Undo uses it (audit B.8). */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE runs ADD COLUMN destinationId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE runs ADD COLUMN destinationName TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 /** Hilt wiring for the data layer (spec sections 4, 12). */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -80,7 +88,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CineSortDatabase =
         Room.databaseBuilder(context, CineSortDatabase::class.java, CineSortDatabase.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides

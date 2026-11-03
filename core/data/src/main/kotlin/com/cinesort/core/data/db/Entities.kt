@@ -57,6 +57,9 @@ data class RunEntity(
     val optionsSnapshot: String = "",
     val totalItems: Int = 0,
     val undone: Boolean = false,
+    /** Destination tree the run wrote into (audit B.8); v5 columns. */
+    val destinationId: String = "",
+    val destinationName: String = "",
 )
 
 /** One journaled file operation inside a run (spec sections 8.3, 8.5). */

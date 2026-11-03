@@ -3,7 +3,9 @@ package com.cinesort.core.data.db
 import com.cinesort.core.domain.journal.JournalStore
 import com.cinesort.core.domain.journal.OperationRecord
 import com.cinesort.core.domain.journal.OperationState
+import com.cinesort.core.domain.journal.RunOperationSummary
 import com.cinesort.core.domain.journal.RunRecord
+import com.cinesort.core.domain.journal.bestStateOf
 
 /** Room-backed [JournalStore] (spec sections 8.5, 12). */
 class RoomJournalStore(
@@ -25,6 +27,19 @@ class RoomJournalStore(
     override suspend fun operationsOf(runId: String): List<OperationRecord> =
         runDao.operationsOf(runId).map { it.toRecord() }
 
+    override suspend fun operationSummary(runId: String): RunOperationSummary {
+        // Distinct (item, state) pairs collapsed by the domain's single
+        // priority definition, so the summary counts exactly like the
+        // full operation list does (section-3 audit).
+        val bestByItem = runDao.itemStates(runId)
+            .groupBy({ it.itemId }, { it.state.toOperationState() })
+            .mapValues { (_, states) -> bestStateOf(states) ?: OperationState.PENDING }
+        return RunOperationSummary(
+            bestStateByItem = bestByItem,
+            postersDone = runDao.countDonePosters(runId),
+        )
+    }
+
     override suspend fun run(id: String): RunRecord? = runDao.run(id)?.toRecord()
 
     override suspend fun recentRuns(limit: Int): List<RunRecord> =
@@ -43,6 +58,11 @@ class RoomJournalStore(
 
     // ------------------------------------------------------------ mapping
 
+    /** Persisted states are enum names; an unknown name reads as PENDING,
+     *  the same fallback [OperationEntity.toRecord] applies. */
+    private fun String.toOperationState(): OperationState =
+        runCatching { OperationState.valueOf(this) }.getOrDefault(OperationState.PENDING)
+
     private fun RunRecord.toEntity(): RunEntity = RunEntity(
         id = id,
         startedAt = startedAt,
@@ -50,6 +70,8 @@ class RoomJournalStore(
         optionsSnapshot = optionsSnapshot,
         totalItems = totalItems,
         undone = undone,
+        destinationId = destinationId,
+        destinationName = destinationName,
     )
 
     private fun RunEntity.toRecord(): RunRecord = RunRecord(
@@ -59,6 +81,8 @@ class RoomJournalStore(
         optionsSnapshot = optionsSnapshot,
         totalItems = totalItems,
         undone = undone,
+        destinationId = destinationId,
+        destinationName = destinationName,
     )
 
     private fun OperationRecord.toEntity(): OperationEntity = OperationEntity(

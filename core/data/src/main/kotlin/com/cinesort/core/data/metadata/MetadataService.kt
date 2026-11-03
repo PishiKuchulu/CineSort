@@ -50,6 +50,8 @@ data class MetadataCandidate(
     val rating: Double? = null,
     val ratingSource: RatingSource? = null,
     val imdbId: String? = null,
+    /** Display label of the provider that produced this candidate ("TMDB" / "OMDb"). */
+    val provider: String = "",
 )
 
 /** One unique lookup request for [MetadataService.lookupAll]. */
@@ -78,7 +80,8 @@ private data class CachedMetadata(
  *
  * Implements the provider matrix of section 9.1, the matching rules of
  * section 9.3, and the resilience rules of section 9.4: Room cache (30 days
- * for hits, 24 hours for degraded hits, 7 days for negative results), at
+ * for hits, 24 hours for degraded hits, 7 days for negative results;
+ * expired rows pruned and the table capped per scan batch), at
  * most 2 retries with exponential backoff for IO/5xx failures, one
  * `Retry-After`-honouring retry on 429, OMDb quota exhaustion persisted
  * until the next UTC midnight, a TMDB→OMDb search fallback (review M-D),
@@ -197,12 +200,24 @@ class MetadataService(
         keys: ApiKeys,
     ): List<MetadataCandidate> {
         val cleanKeys = keys.normalized()
-        return try {
-            when {
-                cleanKeys.hasTmdb -> tmdbCandidates(type, title, year, cleanKeys)
-                cleanKeys.hasOmdb -> omdbCandidates(type, title, year, cleanKeys)
-                else -> emptyList()
+        if (!cleanKeys.hasTmdb && !cleanKeys.hasOmdb) return emptyList()
+        if (cleanKeys.hasTmdb) {
+            val tmdb = try {
+                tmdbCandidates(type, title, year, cleanKeys)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "TMDB candidate search failed")
+                emptyList()
             }
+            if (tmdb.isNotEmpty() || !cleanKeys.hasOmdb) return tmdb
+            // TMDB found nothing (or is down): a user holding both keys
+            // still gets candidates from OMDb instead of an empty list
+            // (audit A.3-9 — provider choice used to be key-presence only,
+            // so items missing from TMDB showed no candidates at all).
+        }
+        return try {
+            omdbCandidates(type, title, year, cleanKeys)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -258,18 +273,45 @@ class MetadataService(
     suspend fun lookupAll(
         items: List<MetadataQuery>,
         keys: ApiKeys,
-    ): Map<String, MetadataInfo> = coroutineScope {
-        val unique = items.distinctBy { Triple(it.type, it.key, it.year) }
-        val semaphore = Semaphore(MAX_CONCURRENCY)
-        val deferred = unique.map { query ->
-            async {
-                semaphore.withPermit {
-                    val info = enrich(query.type, query.title, query.year, keys)
-                    if (info != null) query.key to info else null
+    ): Map<String, MetadataInfo> {
+        pruneCache()
+        return coroutineScope {
+            val unique = items.distinctBy { Triple(it.type, it.key, it.year) }
+            val semaphore = Semaphore(MAX_CONCURRENCY)
+            val deferred = unique.map { query ->
+                async {
+                    semaphore.withPermit {
+                        val info = enrich(query.type, query.title, query.year, keys)
+                        if (info != null) query.key to info else null
+                    }
                 }
             }
+            deferred.mapNotNull { it.await() }.toMap()
         }
-        deferred.mapNotNull { it.await() }.toMap()
+    }
+
+    /**
+     * Cache upkeep (section-3 audit): expired rows used to be dead weight
+     * forever — reads treated them as misses but nothing ever deleted
+     * them, so the table grew by one row per unique title indefinitely.
+     * Runs once per scan batch ([lookupAll]): negative results past their
+     * 7-day TTL and anything past the 30-day success TTL are deleted, and
+     * the table is capped at [MAX_CACHE_ROWS] rows, oldest first (the cap
+     * also bounds how long a degraded row can linger past its 24-hour
+     * TTL). Best effort — upkeep must never break a lookup.
+     */
+    private suspend fun pruneCache() {
+        try {
+            val now = nowMillis()
+            cacheDao.deleteExpiredNegatives(now - NEGATIVE_TTL_MS)
+            cacheDao.deleteOlderThan(now - SUCCESS_TTL_MS)
+            val excess = cacheDao.count() - MAX_CACHE_ROWS
+            if (excess > 0) cacheDao.deleteOldest(excess)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "metadata cache upkeep failed")
+        }
     }
 
     // ------------------------------------------------------------ live lookups
@@ -521,6 +563,7 @@ class MetadataService(
                 posterUrl = item.posterPath?.let { POSTER_BASE_URL + it },
                 rating = item.voteAverage?.takeIf { it > 0.0 },
                 ratingSource = if (item.voteAverage != null) RatingSource.TMDB else null,
+                provider = "TMDB",
             )
         }
     }
@@ -551,6 +594,7 @@ class MetadataService(
                 year = item.yearValue,
                 posterUrl = item.poster?.takeIf { it != "N/A" },
                 imdbId = item.imdbId,
+                provider = "OMDb",
             )
         }
     }
@@ -805,6 +849,9 @@ class MetadataService(
         private const val DEGRADED_TTL_MS = 24L * 60 * 60 * 1000
         private const val NEGATIVE_TTL_MS = 7L * 24 * 60 * 60 * 1000
         private const val CIRCUIT_FAILURE_THRESHOLD = 3
+
+        /** Row cap for the metadata cache; oldest rows evicted first. */
+        private const val MAX_CACHE_ROWS = 2_000
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
 

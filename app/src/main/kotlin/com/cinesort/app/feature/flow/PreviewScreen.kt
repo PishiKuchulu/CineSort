@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,14 +17,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -36,18 +38,25 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cinesort.app.R
@@ -61,8 +70,11 @@ import com.cinesort.core.designsystem.component.LtrText
 import com.cinesort.core.designsystem.component.MediaKind
 import com.cinesort.core.designsystem.component.MediaTypeChip
 import com.cinesort.core.designsystem.component.ProviderBadge
+import com.cinesort.core.designsystem.component.StepperRow
+import com.cinesort.core.designsystem.component.SwitchRow
 import com.cinesort.core.designsystem.component.formatBytes
 import com.cinesort.core.designsystem.component.toPersianDigits
+import com.cinesort.core.designsystem.theme.LocalCineSortTokens
 import com.cinesort.core.domain.planner.ItemType
 import com.cinesort.core.domain.planner.PlannedItem
 import com.cinesort.core.domain.planner.PlannedStatus
@@ -70,6 +82,7 @@ import com.cinesort.core.domain.planner.RatingSource
 import com.cinesort.core.parser.Confidence
 import com.cinesort.core.parser.ParseResult
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * Preview screen (spec 10.4 screen 5): summary header, filters + search,
@@ -83,7 +96,7 @@ fun PreviewScreen(
     onOpenRun: () -> Unit = {},
     viewModel: PreviewViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val session = state.session
     val plan = session.plan
     val persianDigits = state.settings.persianDigits
@@ -95,6 +108,9 @@ fun PreviewScreen(
         }
     }
 
+    // Settings changed elsewhere replan on entry (audit B.5).
+    LaunchedEffect(Unit) { viewModel.onEnter() }
+
     val filtered = remember(plan, state.filter, state.query) {
         plan.filter { item -> matchesFilter(item, state.filter, state.query) }
     }
@@ -102,12 +118,29 @@ fun PreviewScreen(
         filtered.groupBy { it.targetFolderPath }
             .entries.sortedBy { it.key }
     }
-    val selectedItems = plan.filter { it.selected && it.status == PlannedStatus.READY }
-    val selectedBytes = selectedItems.sumOf { it.sizeBytes }
-    val crossItems = selectedItems.filter { it.crossVolume }
-    val crossBytes = crossItems.sumOf { it.sizeBytes }
+    // Selection aggregates depend only on the plan (section-3 audit):
+    // remembered, instead of four O(n) filter passes over a possibly
+    // huge plan on every recomposition (each search keystroke included).
+    val selectedItems = remember(plan) {
+        plan.filter { it.selected && it.status == PlannedStatus.READY }
+    }
+    val selectedBytes = remember(selectedItems) { selectedItems.sumOf { it.sizeBytes } }
+    val crossItems = remember(selectedItems) { selectedItems.filter { it.crossVolume } }
+    val crossBytes = remember(crossItems) { crossItems.sumOf { it.sizeBytes } }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // A dropped edit is announced, not silent (audit B.5).
+    val editFailedMessage = stringResource(R.string.preview_edit_not_applied)
+    LaunchedEffect(state.editApplyFailed) {
+        if (state.editApplyFailed) {
+            snackbarHostState.showSnackbar(editFailedMessage)
+            viewModel.consumeEditApplyFailed()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.preview_title)) },
@@ -157,7 +190,13 @@ fun PreviewScreen(
             session.error != null -> ErrorState(
                 icon = Icons.Filled.ErrorOutline,
                 title = stringResource(R.string.preview_error_title),
-                message = session.error ?: "",
+                // Never the raw session error string (audit 1-8 pattern):
+                // a localized message per known case, generic otherwise.
+                message = if (session.error == OrganizeSession.ERROR_NO_SETUP) {
+                    stringResource(R.string.scan_error_no_setup)
+                } else {
+                    stringResource(R.string.preview_error_generic)
+                },
                 retryLabel = stringResource(R.string.flow_go_home),
                 onRetry = onBack,
                 modifier = Modifier
@@ -182,6 +221,52 @@ fun PreviewScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { SummaryHeader(plan = plan, crossBytes = crossBytes, persianDigits = persianDigits) }
+                // Session facts that change what "Organize" will do,
+                // surfaced where the decision is made (audit A.3-5 free
+                // space, A.3-11 metadata, A.3-6 scan losses).
+                session.freeSpaceShortfallBytes?.let { shortfall ->
+                    item {
+                        Text(
+                            text = stringResource(
+                                R.string.preview_free_space_warning,
+                                formatBytes(shortfall, persianDigits),
+                            ).let { if (persianDigits) it.toPersianDigits() else it },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                if (session.metadataUnavailable &&
+                    state.settings.metadataUnavailable ==
+                    com.cinesort.core.data.settings.MetadataUnavailableMode.CONTINUE &&
+                    (
+                        state.settings.movieAddGenres || state.settings.movieAddRating ||
+                            state.settings.seriesAddGenres || state.settings.seriesAddRating
+                        )
+                ) {
+                    item {
+                        Text(
+                            text = stringResource(
+                                R.string.preview_metadata_unavailable_banner,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                if (session.scanFailedCount > 0 || session.scanSkippedCount > 0) {
+                    item {
+                        Text(
+                            text = stringResource(
+                                R.string.scan_issues_summary,
+                                session.scanFailedCount,
+                                session.scanSkippedCount,
+                            ).let { if (persianDigits) it.toPersianDigits() else it },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
                 item {
                     FilterAndSearch(
                         filter = state.filter,
@@ -200,7 +285,19 @@ fun PreviewScreen(
                         onMaxGenresChange = { viewModel.onMaxGenresChanged(it) },
                     )
                 }
-                item { BulkActions(viewModel = viewModel) }
+                item {
+                    BulkActions(
+                        viewModel = viewModel,
+                        readyCount = plan.count { it.status == PlannedStatus.READY },
+                        selectedCount = plan.count { it.selected },
+                        needsReviewSelectedCount = plan.count {
+                            it.selected && it.status == PlannedStatus.NEEDS_REVIEW
+                        },
+                        showMessage = { message ->
+                            scope.launch { snackbarHostState.showSnackbar(message) }
+                        },
+                    )
+                }
                 if (filtered.isEmpty()) {
                     item {
                         EmptyState(
@@ -354,11 +451,14 @@ private fun SummaryHeader(
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (crossBytes > 0) {
+                // A warning, not an error (audit 1-9): the amber
+                // needs-review tokens carry it, red stays for real errors.
+                val tokens = LocalCineSortTokens.current
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Filled.Warning,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = tokens.needsReview,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
@@ -368,7 +468,7 @@ private fun SummaryHeader(
                             formatBytes(crossBytes, persianDigits),
                         ),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
+                        color = tokens.needsReviewText,
                     )
                 }
             }
@@ -430,6 +530,11 @@ private fun FilterAndSearch(
                 onClick = { onFilterChange(PreviewFilter.SKIPPED) },
                 label = { Text(stringResource(R.string.preview_filter_skipped)) },
             )
+            FilterChip(
+                selected = filter == PreviewFilter.ALREADY,
+                onClick = { onFilterChange(PreviewFilter.ALREADY) },
+                label = { Text(stringResource(R.string.preview_filter_already)) },
+            )
         }
         OutlinedTextField(
             value = query,
@@ -438,6 +543,21 @@ private fun FilterAndSearch(
             leadingIcon = {
                 Icon(imageVector = Icons.Filled.Search, contentDescription = null)
             },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(
+                                R.string.preview_search_clear,
+                            ),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -459,73 +579,82 @@ private fun NamingRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.preview_naming_genres),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Switch(checked = genres, onCheckedChange = onGenresChange)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.preview_naming_rating),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Switch(checked = rating, onCheckedChange = onRatingChange)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.preview_naming_max_genres),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { onMaxGenresChange(maxGenres - 1) },
-                        enabled = maxGenres > 1,
-                    ) {
-                        Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
-                    }
-                    Text(
-                        text = maxGenres.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    IconButton(
-                        onClick = { onMaxGenresChange(maxGenres + 1) },
-                        enabled = maxGenres < 6,
-                    ) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-                    }
-                }
-            }
+            // Shared designsystem controls (audit 1-9): this card used to
+            // carry the second, duplicated stepper implementation with
+            // unlabeled +/- buttons, plus two more hand-rolled switch rows.
+            SwitchRow(
+                label = stringResource(R.string.preview_naming_genres),
+                checked = genres,
+                onCheckedChange = onGenresChange,
+            )
+            SwitchRow(
+                label = stringResource(R.string.preview_naming_rating),
+                checked = rating,
+                onCheckedChange = onRatingChange,
+            )
+            StepperRow(
+                label = stringResource(R.string.preview_naming_max_genres),
+                value = maxGenres,
+                min = 1,
+                max = 6,
+                onValueChange = onMaxGenresChange,
+                decreaseLabel = stringResource(R.string.common_decrease),
+                increaseLabel = stringResource(R.string.common_increase),
+            )
         }
     }
 }
 
 @Composable
-private fun BulkActions(viewModel: PreviewViewModel) {
+private fun BulkActions(
+    viewModel: PreviewViewModel,
+    readyCount: Int,
+    selectedCount: Int,
+    needsReviewSelectedCount: Int,
+    showMessage: (String) -> Unit,
+) {
+    // Buttons disable when they could do nothing, and every action reports
+    // its result — before this, all three were always enabled and the only
+    // feedback was checkboxes changing, possibly inside a collapsed group
+    // (granular audit 1-9).
+    val selectedReadyMessage = stringResource(
+        R.string.preview_bulk_selected_ready,
+        readyCount,
+    )
+    val deselectedReviewMessage = stringResource(
+        R.string.preview_bulk_deselected_review,
+        needsReviewSelectedCount,
+    )
+    val clearedMessage = stringResource(R.string.preview_bulk_cleared)
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        TextButton(onClick = { viewModel.selectAllReady() }) {
+        TextButton(
+            onClick = {
+                viewModel.selectAllReady()
+                showMessage(selectedReadyMessage)
+            },
+            enabled = readyCount > 0,
+        ) {
             Text(stringResource(R.string.preview_bulk_select_ready))
         }
-        TextButton(onClick = { viewModel.deselectNeedsReview() }) {
+        TextButton(
+            onClick = {
+                viewModel.deselectNeedsReview()
+                showMessage(deselectedReviewMessage)
+            },
+            enabled = needsReviewSelectedCount > 0,
+        ) {
             Text(stringResource(R.string.preview_bulk_deselect_review))
         }
-        TextButton(onClick = { viewModel.clearSelection() }) {
+        TextButton(
+            onClick = {
+                viewModel.clearSelection()
+                showMessage(clearedMessage)
+            },
+            enabled = selectedCount > 0,
+        ) {
             Text(stringResource(R.string.preview_bulk_clear))
         }
     }
@@ -542,6 +671,10 @@ private fun GroupHeader(
 ) {
     val readyItems = items.filter { it.status == PlannedStatus.READY }
     val allSelected = readyItems.isNotEmpty() && readyItems.all { it.selected }
+    val anySelected = readyItems.any { it.selected }
+    val groupStateDescription = stringResource(
+        if (expanded) R.string.preview_group_expanded else R.string.preview_group_collapsed,
+    )
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -549,15 +682,22 @@ private fun GroupHeader(
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggleExpand() },
+            .clickable { onToggleExpand() }
+            .semantics { stateDescription = groupStateDescription },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(
-                checked = allSelected,
-                onCheckedChange = { onGroupSelected(it) },
+            // Tri-state (audit 1-9): a partially selected group used to
+            // render as simply "unchecked", hiding the partial selection.
+            TriStateCheckbox(
+                state = when {
+                    allSelected -> ToggleableState.On
+                    anySelected -> ToggleableState.Indeterminate
+                    else -> ToggleableState.Off
+                },
+                onClick = { onGroupSelected(!allSelected) },
                 enabled = readyItems.isNotEmpty(),
             )
             Column(Modifier.weight(1f)) {
@@ -591,6 +731,7 @@ private fun GroupHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PreviewRow(
     item: PlannedItem,
@@ -620,9 +761,9 @@ private fun PreviewRow(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     when (item.type) {
                         ItemType.MOVIE -> MediaTypeChip(
@@ -674,6 +815,27 @@ private fun PreviewRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // What the file was matched as (audit A.3-8): the row used
+                // to show the provider's rating but never the matched
+                // title the folder name will be built from.
+                item.matchedTitle?.takeIf { it.isNotBlank() }?.let { matched ->
+                    Spacer(Modifier.height(4.dp))
+                    LtrText(
+                        text = stringResource(R.string.preview_matched_as, matched),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // A recently-modified skip explains itself (audit B.4):
+                // "wait, or raise Settings → Minimum file age".
+                if (item.status == PlannedStatus.RECENTLY_MODIFIED) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.preview_recent_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (item.companions.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -691,21 +853,29 @@ private fun PreviewRow(
                 }
                 if (item.warnings.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
+                    // Amber, not error red (audit 1-9), and the first
+                    // warning's own (localized) text shows in the row
+                    // instead of only a count. Warning ids are internal
+                    // strings, so known ids map to localized messages and
+                    // unknown ones fall back to the count.
+                    val tokens = LocalCineSortTokens.current
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Filled.Warning,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = tokens.needsReview,
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = if (
-                                OrganizeSession.WARNING_METADATA_HELD in item.warnings
-                            ) {
-                                stringResource(R.string.preview_metadata_held)
-                            } else {
-                                stringResource(
+                            text = when {
+                                OrganizeSession.WARNING_METADATA_HELD in item.warnings ->
+                                    stringResource(R.string.preview_metadata_held)
+                                item.warnings.any { it == "unrecognized" } ->
+                                    stringResource(R.string.preview_warning_unrecognized)
+                                item.warnings.any { it.startsWith("conflict:") } ->
+                                    stringResource(R.string.preview_warning_conflict)
+                                else -> stringResource(
                                     R.string.preview_warnings,
                                     item.warnings.size,
                                 ).let {
@@ -713,7 +883,7 @@ private fun PreviewRow(
                                 }
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+                            color = tokens.needsReviewText,
                         )
                     }
                 }
@@ -732,10 +902,19 @@ private fun StatusLabel(item: PlannedItem) {
         PlannedStatus.RECENTLY_MODIFIED -> R.string.preview_status_recent
         PlannedStatus.READY -> null
     } ?: return
+    // Three tiers (audit 1-9): red is reserved for a real conflict;
+    // needs-review is amber; skipped / already-organized / recently
+    // modified are neutral information, not errors.
+    val tokens = LocalCineSortTokens.current
+    val color = when (item.status) {
+        PlannedStatus.CONFLICT -> MaterialTheme.colorScheme.error
+        PlannedStatus.NEEDS_REVIEW -> tokens.needsReviewText
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Text(
         text = stringResource(labelRes),
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.error,
+        color = color,
     )
 }
 
@@ -762,9 +941,11 @@ private fun matchesFilter(
         PreviewFilter.SERIES -> item.type == ItemType.EPISODE
         PreviewFilter.NEEDS_REVIEW -> item.status == PlannedStatus.NEEDS_REVIEW
         PreviewFilter.CONFLICTS -> item.status == PlannedStatus.CONFLICT
+        // One status per chip (audit A.3-12): "Skipped" no longer also
+        // swallows Already organized and Recently modified.
         PreviewFilter.SKIPPED -> item.status == PlannedStatus.SKIPPED ||
-            item.status == PlannedStatus.ALREADY_ORGANIZED ||
             item.status == PlannedStatus.RECENTLY_MODIFIED
+        PreviewFilter.ALREADY -> item.status == PlannedStatus.ALREADY_ORGANIZED
     }
     if (!filterOk) return false
     if (query.isBlank()) return true

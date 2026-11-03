@@ -1,29 +1,33 @@
 package com.cinesort.app.feature.flow
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -34,7 +38,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +52,7 @@ import com.cinesort.app.R
 import com.cinesort.app.orchestration.ItemEdit
 import com.cinesort.core.data.metadata.MetadataCandidate
 import com.cinesort.core.designsystem.component.LtrText
+import com.cinesort.core.designsystem.component.SwitchRow
 import com.cinesort.core.designsystem.theme.MonoFontFamily
 import com.cinesort.core.domain.planner.ConflictChoice
 import com.cinesort.core.domain.planner.ItemType
@@ -163,24 +170,53 @@ fun EditSheet(
                 text = stringResource(R.string.edit_type),
                 style = MaterialTheme.typography.titleMedium,
             )
+            // Whole row is the radio target (audit 1-10): label text and
+            // button share one selectable node with the RadioButton role.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(
-                    selected = type == ItemType.MOVIE,
-                    onClick = { type = ItemType.MOVIE },
-                )
-                Text(stringResource(R.string.preview_type_movie))
+                Row(
+                    modifier = Modifier.selectable(
+                        selected = type == ItemType.MOVIE,
+                        role = Role.RadioButton,
+                        onClick = { type = ItemType.MOVIE },
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = type == ItemType.MOVIE,
+                        onClick = null,
+                    )
+                    Text(stringResource(R.string.preview_type_movie))
+                }
                 Spacer(Modifier.width(16.dp))
-                RadioButton(
-                    selected = type == ItemType.EPISODE,
-                    onClick = { type = ItemType.EPISODE },
-                )
-                Text(stringResource(R.string.preview_type_series))
+                Row(
+                    modifier = Modifier.selectable(
+                        selected = type == ItemType.EPISODE,
+                        role = Role.RadioButton,
+                        onClick = { type = ItemType.EPISODE },
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = type == ItemType.EPISODE,
+                        onClick = null,
+                    )
+                    Text(stringResource(R.string.preview_type_series))
+                }
             }
+            val titleInvalid = title.isBlank()
+            val yearInvalid = year.isNotEmpty() &&
+                (year.length < 4 || (year.toIntOrNull() ?: 0) !in 1900..2100)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
                 label = { Text(stringResource(R.string.edit_field_title)) },
                 singleLine = true,
+                isError = titleInvalid,
+                supportingText = if (titleInvalid) {
+                    { Text(stringResource(R.string.edit_error_title_required)) }
+                } else {
+                    null
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -188,6 +224,12 @@ fun EditSheet(
                 onValueChange = { year = it.filter { c -> c.isDigit() }.take(4) },
                 label = { Text(stringResource(R.string.edit_field_year)) },
                 singleLine = true,
+                isError = yearInvalid,
+                supportingText = if (yearInvalid) {
+                    { Text(stringResource(R.string.edit_error_year_range)) }
+                } else {
+                    null
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -207,11 +249,19 @@ fun EditSheet(
                     )
                     OutlinedTextField(
                         value = episodes,
-                        onValueChange = { episodes = it },
+                        // Text keyboard (audit 1-10): the value is a
+                        // comma-separated list ("1, 2, 3") and most numeric
+                        // keypads have no comma key. Input is filtered to
+                        // digits, commas and spaces.
+                        onValueChange = { value ->
+                            episodes = value.filter { c ->
+                                c.isDigit() || c == ',' || c == ' '
+                            }
+                        },
                         label = { Text(stringResource(R.string.edit_field_episodes)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
+                            keyboardType = KeyboardType.Text,
                         ),
                         modifier = Modifier.weight(1f),
                     )
@@ -221,11 +271,13 @@ fun EditSheet(
                 label = stringResource(R.string.edit_apply_series),
                 checked = applyToSeries,
                 onCheckedChange = { applyToSeries = it },
+                labelStyle = MaterialTheme.typography.bodyMedium,
             )
             SwitchRow(
                 label = stringResource(R.string.edit_remember),
                 checked = rememberCorrection,
                 onCheckedChange = { rememberCorrection = it },
+                labelStyle = MaterialTheme.typography.bodyMedium,
             )
 
             // Metadata search.
@@ -260,13 +312,16 @@ fun EditSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 260.dp),
+                // Plain Column (audit 1-10): a LazyColumn nested inside
+                // the sheet's verticalScroll fought the sheet's scroll
+                // gestures, and its title+year key could collide for
+                // same-name candidates from two providers. The candidate
+                // list is short, so eager composition is fine.
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(candidates, key = { it.title + (it.year ?: 0) }) { candidate ->
+                    candidates.forEach { candidate ->
                         CandidateRow(
                             candidate = candidate,
                             onClick = {
@@ -320,33 +375,67 @@ fun EditSheet(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
+                Row(
+                    modifier = Modifier.selectable(
                         selected = chosenConflict == ConflictChoice.SKIP,
+                        role = Role.RadioButton,
                         onClick = {
                             chosenConflict = ConflictChoice.SKIP
                             onConflictChoice(ConflictChoice.SKIP, conflictApplyAll)
                         },
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = chosenConflict == ConflictChoice.SKIP,
+                        onClick = null,
                     )
                     Text(stringResource(R.string.edit_conflict_skip))
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
+                Row(
+                    modifier = Modifier.selectable(
                         selected = chosenConflict == ConflictChoice.KEEP_BOTH,
+                        role = Role.RadioButton,
                         onClick = {
                             chosenConflict = ConflictChoice.KEEP_BOTH
                             onConflictChoice(ConflictChoice.KEEP_BOTH, conflictApplyAll)
                         },
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = chosenConflict == ConflictChoice.KEEP_BOTH,
+                        onClick = null,
                     )
                     Text(stringResource(R.string.edit_conflict_keep_both))
                 }
                 SwitchRow(
                     label = stringResource(R.string.edit_conflict_apply_all),
                     checked = conflictApplyAll,
-                    onCheckedChange = { conflictApplyAll = it },
+                    onCheckedChange = { value ->
+                        conflictApplyAll = value
+                        // Toggling the scope after picking a choice must
+                        // take effect too (audit 1-10): re-apply the
+                        // current choice with the new scope instead of
+                        // silently doing nothing.
+                        chosenConflict?.let { choice ->
+                            onConflictChoice(choice, value)
+                        }
+                    },
+                    labelStyle = MaterialTheme.typography.bodyMedium,
                 )
             }
 
+            // Which parts of this sheet act immediately is stated, not
+            // implied (audit B.5): conflict choices and candidate picks
+            // commit the moment they are tapped; only the fields above
+            // wait for Apply.
+            Text(
+                text = stringResource(R.string.edit_immediate_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -372,6 +461,7 @@ fun EditSheet(
                             rememberCorrection,
                         )
                     },
+                    enabled = !titleInvalid && !yearInvalid,
                 ) {
                     Text(stringResource(R.string.common_apply))
                 }
@@ -381,25 +471,9 @@ fun EditSheet(
     }
 }
 
-@Composable
-private fun SwitchRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
+// The sheet's switch rows are the shared designsystem SwitchRow
+// (component/Controls.kt) with bodyMedium labels — this file used to carry
+// the third private copy (granular audit 1-10).
 
 @Composable
 private fun CandidateRow(
@@ -413,14 +487,31 @@ private fun CandidateRow(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (candidate.posterUrl != null) {
-            AsyncImage(
-                model = candidate.posterUrl,
+        // Fixed poster slot with a placeholder (audit 1-10): while the
+        // image loads — or when there is none — the row keeps its shape
+        // instead of collapsing to an empty 40x60 gap.
+        Box(
+            modifier = Modifier
+                .size(width = 40.dp, height = 60.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Movie,
                 contentDescription = null,
-                modifier = Modifier.size(width = 40.dp, height = 60.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(12.dp))
+            if (candidate.posterUrl != null) {
+                AsyncImage(
+                    model = candidate.posterUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 text = candidate.title,
@@ -431,6 +522,9 @@ private fun CandidateRow(
                 candidate.rating?.let {
                     add(String.format(Locale.ROOT, "%.1f", it))
                 }
+                // Which provider produced this row (audit A.3-9): the
+                // fallback now mixes providers, so the row says which.
+                if (candidate.provider.isNotEmpty()) add(candidate.provider)
             }.joinToString(" · ")
             if (details.isNotEmpty()) {
                 Text(
@@ -527,10 +621,13 @@ private fun SegmentLegend(
     label: String,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = "■",
-            color = color,
-            style = MaterialTheme.typography.bodySmall,
+        // A graphic swatch, not a "■" text glyph that a screen reader
+        // would read aloud (audit 1-10).
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(color),
         )
         Spacer(Modifier.width(6.dp))
         Text(text = label, style = MaterialTheme.typography.bodySmall)
@@ -549,7 +646,11 @@ private fun tailAfterAnchor(fileName: String, anchorText: String): String {
     return tail.trim()
 }
 
-/** Human-readable line for one parse-trace rule id (fallback: the raw id). */
+/**
+ * Human-readable line for one parse-trace rule id. Unknown ids get a
+ * generic localized line — the raw internal id never reaches the user
+ * (granular audit 1-10).
+ */
 @Composable
 private fun ruleText(rule: String): String = when {
     rule == "episode:marker-in-name" -> stringResource(R.string.edit_rule_episode_marker)
@@ -558,5 +659,5 @@ private fun ruleText(rule: String): String = when {
     rule == "movie:noise-run-fallback" -> stringResource(R.string.edit_rule_noise_run)
     rule == "episode:folder-context" -> stringResource(R.string.edit_rule_folder)
     rule.startsWith("unrecognized") -> stringResource(R.string.edit_rule_unrecognized)
-    else -> rule
+    else -> stringResource(R.string.edit_rule_generic)
 }

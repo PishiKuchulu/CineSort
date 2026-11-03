@@ -152,6 +152,25 @@ class OrganizePlanner {
     }
 
     /**
+     * Bytes by which the selected READY items exceed the destination's
+     * known free space, or null when the free space is unknown or
+     * sufficient (audit A.3-5). The snapshot already carries `freeBytes`;
+     * before this the planner defined the field and never read it, so a
+     * too-full destination only surfaced mid-run, per file, after part of
+     * the library had already moved.
+     */
+    fun freeSpaceShortfall(
+        planned: List<PlannedItem>,
+        destination: DestinationSnapshot,
+    ): Long? {
+        val free = destination.freeBytes ?: return null
+        val needed = planned
+            .filter { it.selected && it.status == PlannedStatus.READY }
+            .sumOf { it.sizeBytes }
+        return if (needed > free) needed - free else null
+    }
+
+    /**
      * Applies the persisted title overrides to raw parse results, keyed exactly
      * as [plan] applies them internally. Exposed so the session can build
      * metadata queries from the same effective titles the planner will use

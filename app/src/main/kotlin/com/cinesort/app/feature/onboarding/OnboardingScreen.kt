@@ -4,6 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,18 +23,22 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -40,8 +50,10 @@ import com.cinesort.app.R
 import com.cinesort.app.util.displayNameOf
 import com.cinesort.app.util.rememberTreePicker
 import com.cinesort.core.designsystem.component.ApiKeyField
+import com.cinesort.core.designsystem.component.ApiKeyStatusKind
 import com.cinesort.core.designsystem.component.FilmPerforationStrip
 import com.cinesort.core.designsystem.component.StageStepper
+import com.cinesort.core.designsystem.theme.LocalCineSortTokens
 
 private const val TMDB_HELP_URL = "https://www.themoviedb.org/settings/api"
 private const val OMDB_HELP_URL = "https://www.omdbapi.com/apikey.aspx"
@@ -56,9 +68,11 @@ fun OnboardingScreen(
     onFinished: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var step by remember { mutableIntStateOf(0) }
+    // rememberSaveable (audit B.1): a configuration change mid-onboarding
+    // used to restart the wizard at step 0 with picks seemingly lost.
+    var step by rememberSaveable { mutableIntStateOf(0) }
 
     val destinationPicker = rememberTreePicker { uri ->
         viewModel.onDestinationPicked(uri.toString(), displayNameOf(context, uri.toString()))
@@ -83,6 +97,7 @@ fun OnboardingScreen(
         ) {
             FilmPerforationStrip()
             Spacer(Modifier.height(16.dp))
+            val stageStateTemplate = stringResource(R.string.scan_stage_state)
             StageStepper(
                 stages = listOf(
                     stringResource(R.string.onboarding_welcome_title),
@@ -92,15 +107,34 @@ fun OnboardingScreen(
                     stringResource(R.string.onboarding_done_title),
                 ),
                 currentIndex = step,
+                stageDescription = { index, label ->
+                    String.format(
+                        java.util.Locale.ROOT,
+                        stageStateTemplate,
+                        index + 1,
+                        LAST_STEP + 1,
+                        label,
+                    )
+                },
+                persianDigits = state.languageCode == "fa",
             )
             Spacer(Modifier.height(24.dp))
+            AnimatedContent(
+                targetState = step,
+                transitionSpec = {
+                    (slideInHorizontally { width -> width / 3 } + fadeIn()) togetherWith
+                        (slideOutHorizontally { width -> -width / 3 } + fadeOut())
+                },
+                label = "onboardingStep",
+                modifier = Modifier.weight(1f),
+            ) { targetStep ->
             Column(
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                when (step) {
+                when (targetStep) {
                     0 -> {
                         Text(
                             text = stringResource(R.string.onboarding_welcome_title),
@@ -162,13 +196,26 @@ fun OnboardingScreen(
                         }
                         val destination = state.destination
                         if (destination != null) {
-                            Text(
-                                text = stringResource(
-                                    R.string.onboarding_destination_chosen,
-                                    destination.name,
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                            // A visible success marker, not plain text
+                            // only (audit 1-4).
+                            Row(
+                                verticalAlignment =
+                                androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = null,
+                                    tint = LocalCineSortTokens.current.success,
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.onboarding_destination_chosen,
+                                        destination.name,
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                             Text(
                                 text = stringResource(
                                     R.string.sources_roots_result,
@@ -219,7 +266,19 @@ fun OnboardingScreen(
                             onHelp = { openUrl(TMDB_HELP_URL) },
                             clearLabel = stringResource(R.string.settings_clear_key),
                             onClear = { viewModel.clearTmdbKey() },
-                            statusMessage = state.tmdbTestMessage,
+                            statusMessage = when (state.tmdbTestSuccess) {
+                                true -> state.tmdbTestMessage
+                                false -> stringResource(
+                                    R.string.settings_key_test_failed_generic,
+                                )
+                                null -> null
+                            },
+                            statusKind = when (state.tmdbTestSuccess) {
+                                true -> ApiKeyStatusKind.Success
+                                false -> ApiKeyStatusKind.Error
+                                null -> ApiKeyStatusKind.Neutral
+                            },
+                            isTesting = state.isTestingTmdb,
                             showContentDescription = stringResource(
                                 R.string.settings_show_key,
                             ),
@@ -237,7 +296,19 @@ fun OnboardingScreen(
                             onHelp = { openUrl(OMDB_HELP_URL) },
                             clearLabel = stringResource(R.string.settings_clear_key),
                             onClear = { viewModel.clearOmdbKey() },
-                            statusMessage = state.omdbTestMessage,
+                            statusMessage = when (state.omdbTestSuccess) {
+                                true -> state.omdbTestMessage
+                                false -> stringResource(
+                                    R.string.settings_key_test_failed_generic,
+                                )
+                                null -> null
+                            },
+                            statusKind = when (state.omdbTestSuccess) {
+                                true -> ApiKeyStatusKind.Success
+                                false -> ApiKeyStatusKind.Error
+                                null -> ApiKeyStatusKind.Neutral
+                            },
+                            isTesting = state.isTestingOmdb,
                             showContentDescription = stringResource(
                                 R.string.settings_show_key,
                             ),
@@ -258,18 +329,20 @@ fun OnboardingScreen(
                     }
                 }
             }
+            }
             Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.Start,
             ) {
                 if (step > 0) {
                     OutlinedButton(onClick = { step-- }) {
                         Text(stringResource(R.string.common_back))
                     }
-                } else {
-                    Spacer(Modifier.height(1.dp))
                 }
+                // Weight spacer replaces the old 1.dp alignment hack
+                // (audit 1-4).
+                Spacer(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (step in 1..3) {
                         TextButton(onClick = { step++ }) {
@@ -277,7 +350,18 @@ fun OnboardingScreen(
                         }
                     }
                     if (step < LAST_STEP) {
-                        Button(onClick = { step++ }) {
+                        // Next is gated on the step's own requirement
+                        // (audit 1-4); Skip stays as the explicit,
+                        // labeled bypass for steps 1-2.
+                        val nextEnabled = when (step) {
+                            1 -> state.destination != null
+                            2 -> state.sourcesCount > 0
+                            else -> true
+                        }
+                        Button(
+                            onClick = { step++ },
+                            enabled = nextEnabled,
+                        ) {
                             Text(stringResource(R.string.common_next))
                         }
                     } else {

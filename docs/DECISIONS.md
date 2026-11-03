@@ -116,3 +116,20 @@ route can carry it); CI decodes it and generates the density PNG mipmaps
 The v1.0.3-era aperture vector drawables remain in the repo unused.
 Local builds from the source zip are unaffected — the zip carries the
 binaries.
+
+## Run destination persistence (granular audit B.8)
+Undo used to resolve every run against the library's *current*
+destination, so changing the destination broke (and could misdirect)
+undo of older runs. Since DB v5 (`MIGRATION_4_5`), each run records its
+own `destinationId`/`destinationName`, and all undo entry points resolve
+files under the run's recorded root, falling back to the current
+destination only for pre-v5 runs.
+
+## Cross-volume copy verification (granular audit, section 4)
+A copy is not done when the byte count matches: `copyVerified` compares
+the SHA-256 of the source stream with a re-read of the written
+`.cinesort-part` file before the rename, and the source is deleted only
+after the hash matches. Same-size silent corruption (faulty card, broken
+provider) now fails the item and keeps the source. The cost — one extra
+destination read per copied file — is accepted; same-volume renames are
+unaffected.

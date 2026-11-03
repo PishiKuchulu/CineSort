@@ -8,6 +8,7 @@ import com.cinesort.core.data.metadata.MetadataService
 import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.data.repository.SecretStore
 import com.cinesort.core.data.repository.SettingsRepository
+import com.cinesort.core.data.repository.StorageHealth
 import com.cinesort.core.data.settings.AppSettings
 import com.cinesort.core.domain.journal.JournalStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,10 @@ data class SettingsUiState(
     val settings: AppSettings = AppSettings(),
     val tmdbKey: String = "",
     val omdbKey: String = "",
+    /** Effective value of the extensions field (local while typing). */
+    val videoExtensions: String = "",
+    /** Effective value of the noise-words field (local while typing). */
+    val extraNoiseWords: String = "",
     val tmdbTest: KeyTestUi? = null,
     val omdbTest: KeyTestUi? = null,
     val isTestingTmdb: Boolean = false,
@@ -38,6 +43,8 @@ data class SettingsUiState(
     val overrides: List<TitleOverrideEntity> = emptyList(),
     val destinationName: String? = null,
     val cacheCleared: Boolean = false,
+    /** One-time "storage was recovered" notice (section-4 audit). */
+    val storageHealth: StorageHealth = StorageHealth(),
 )
 
 @HiltViewModel
@@ -65,6 +72,16 @@ class SettingsViewModel @Inject constructor(
     // them even when the viewModelScope job is cancelled first.
     private var pendingTmdbKey: String? = null
     private var pendingOmdbKey: String? = null
+    // The two Advanced free-text fields get the same treatment as the API
+    // keys (audit B.10): they used to write settings on EVERY keystroke,
+    // and the flow echo re-set the field — the user's edited suffix visibly
+    // vanished for a frame after each character.
+    private val extensionsField = MutableStateFlow<String?>(null)
+    private val noiseWordsField = MutableStateFlow<String?>(null)
+    private var extensionsSaveJob: Job? = null
+    private var noiseWordsSaveJob: Job? = null
+    private var pendingExtensions: String? = null
+    private var pendingNoiseWords: String? = null
     private val testingTmdb = MutableStateFlow(false)
     private val testingOmdb = MutableStateFlow(false)
     private val cacheCleared = MutableStateFlow(false)
@@ -80,6 +97,8 @@ class SettingsViewModel @Inject constructor(
             settings = settings,
             tmdbKey = tmdbKey,
             omdbKey = omdbKey,
+            videoExtensions = settings.videoExtensions,
+            extraNoiseWords = settings.extraNoiseWords,
             overrides = overrides,
             destinationName = destination?.name,
         )
@@ -94,6 +113,15 @@ class SettingsViewModel @Inject constructor(
         .combine(omdbKeyField) { state, field ->
             if (field != null) state.copy(omdbKey = field) else state
         }
+        .combine(extensionsField) { state, field ->
+            if (field != null) state.copy(videoExtensions = field) else state
+        }
+        .combine(noiseWordsField) { state, field ->
+            if (field != null) state.copy(extraNoiseWords = field) else state
+        }
+        .combine(settingsRepository.storageHealth) { state, health ->
+            state.copy(storageHealth = health)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -102,6 +130,62 @@ class SettingsViewModel @Inject constructor(
 
     fun update(block: (AppSettings) -> AppSettings) {
         viewModelScope.launch { settingsRepository.update(block) }
+    }
+
+    /** Dismisses the one-time storage-recovery notice (section-4 audit). */
+    fun dismissStorageHealthNotice() {
+        settingsRepository.dismissStorageHealthNotice()
+    }
+
+    /** Extensions field edit: local state now, settings write debounced (audit B.10). */
+    fun onVideoExtensionsChange(value: String) {
+        extensionsField.value = value
+        pendingExtensions = value
+        extensionsSaveJob?.cancel()
+        extensionsSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            flushExtensions()
+        }
+    }
+
+    /** Noise-words field edit: local state now, settings write debounced (audit B.10). */
+    fun onExtraNoiseWordsChange(value: String) {
+        noiseWordsField.value = value
+        pendingNoiseWords = value
+        noiseWordsSaveJob?.cancel()
+        noiseWordsSaveJob = viewModelScope.launch {
+            delay(KEY_SAVE_DEBOUNCE_MS)
+            flushNoiseWords()
+        }
+    }
+
+    private suspend fun flushExtensions() {
+        val value = pendingExtensions ?: return
+        pendingExtensions = null
+        settingsRepository.update { it.copy(videoExtensions = value) }
+        extensionsField.value = null
+    }
+
+    private suspend fun flushNoiseWords() {
+        val value = pendingNoiseWords ?: return
+        pendingNoiseWords = null
+        settingsRepository.update { it.copy(extraNoiseWords = value) }
+        noiseWordsField.value = null
+    }
+
+    /** Writes any debounced Advanced-field edits right away (leaving the screen). */
+    suspend fun flushPendingSettingsFields() {
+        extensionsSaveJob?.cancel()
+        noiseWordsSaveJob?.cancel()
+        flushExtensions()
+        flushNoiseWords()
+    }
+
+    /** Edits a saved correction's title/year in place (audit A.1-5). */
+    fun updateOverride(id: Long, title: String, year: String) {
+        viewModelScope.launch {
+            libraryRepository.updateOverride(id, title.trim(), year.trim())
+        }
     }
 
     fun onTmdbKeyChange(value: String) {
@@ -178,8 +262,12 @@ class SettingsViewModel @Inject constructor(
     override fun onCleared() {
         // viewModelScope is cancelled as part of clearing, so the flush
         // runs on the application scope: leaving this screen inside the
-        // 800 ms debounce window no longer loses the typed key (review M-I).
-        appScope.launch { flushPendingKeys() }
+        // 800 ms debounce window no longer loses the typed key (review M-I)
+        // — or the typed Advanced-field edit (audit B.10).
+        appScope.launch {
+            flushPendingKeys()
+            flushPendingSettingsFields()
+        }
         super.onCleared()
     }
 
@@ -238,6 +326,22 @@ class SettingsViewModel @Inject constructor(
 
     fun deleteOverride(id: Long) {
         viewModelScope.launch { libraryRepository.deleteOverride(id) }
+    }
+
+    /** Re-saves a just-deleted correction (the delete Snackbar's Undo). */
+    fun restoreOverride(entity: com.cinesort.core.data.db.TitleOverrideEntity) {
+        viewModelScope.launch {
+            libraryRepository.saveOverride(
+                com.cinesort.core.domain.planner.TitleOverride(
+                    normalizedKey = entity.normalizedKey,
+                    type = runCatching {
+                        com.cinesort.core.domain.planner.ItemType.valueOf(entity.type)
+                    }.getOrDefault(com.cinesort.core.domain.planner.ItemType.MOVIE),
+                    correctedTitle = entity.correctedTitle,
+                    correctedYear = entity.correctedYear,
+                ),
+            )
+        }
     }
 
     /**

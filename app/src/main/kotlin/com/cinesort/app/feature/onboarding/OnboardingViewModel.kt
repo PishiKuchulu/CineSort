@@ -35,6 +35,10 @@ data class OnboardingUiState(
     val omdbKey: String = "",
     val tmdbTestMessage: String? = null,
     val omdbTestMessage: String? = null,
+    val tmdbTestSuccess: Boolean? = null,
+    val omdbTestSuccess: Boolean? = null,
+    val isTestingTmdb: Boolean = false,
+    val isTestingOmdb: Boolean = false,
 )
 
 @HiltViewModel
@@ -60,6 +64,10 @@ class OnboardingViewModel @Inject constructor(
     private var pendingOmdbKey: String? = null
     private val tmdbTestMessage = MutableStateFlow<String?>(null)
     private val omdbTestMessage = MutableStateFlow<String?>(null)
+    private val tmdbTestSuccess = MutableStateFlow<Boolean?>(null)
+    private val omdbTestSuccess = MutableStateFlow<Boolean?>(null)
+    private val isTestingTmdb = MutableStateFlow(false)
+    private val isTestingOmdb = MutableStateFlow(false)
 
     val uiState: StateFlow<OnboardingUiState> = combine(
         libraryRepository.destination,
@@ -84,6 +92,10 @@ class OnboardingViewModel @Inject constructor(
         }
         .combine(tmdbTestMessage) { state, message -> state.copy(tmdbTestMessage = message) }
         .combine(omdbTestMessage) { state, message -> state.copy(omdbTestMessage = message) }
+        .combine(tmdbTestSuccess) { state, value -> state.copy(tmdbTestSuccess = value) }
+        .combine(omdbTestSuccess) { state, value -> state.copy(omdbTestSuccess = value) }
+        .combine(isTestingTmdb) { state, value -> state.copy(isTestingTmdb = value) }
+        .combine(isTestingOmdb) { state, value -> state.copy(isTestingOmdb = value) }
         .combine(settingsRepository.settings) { state, settings ->
             state.copy(languageCode = settings.languageCode ?: "en")
         }
@@ -136,7 +148,10 @@ class OnboardingViewModel @Inject constructor(
                 uriString = uriString,
                 name = name,
                 includeSubfolders = true,
-                maxDepth = 5,
+                // The one shared default (audit B.1): this literal used to
+                // be a second, drifting copy of SourcesViewModel's.
+                maxDepth = com.cinesort.app.feature.sources.SourcesViewModel
+                    .DEFAULT_SOURCE_DEPTH,
             )
         }
     }
@@ -145,6 +160,7 @@ class OnboardingViewModel @Inject constructor(
     // store is written debounced instead of on every keystroke.
     fun onTmdbKeyChange(value: String) {
         tmdbTestMessage.value = null
+        tmdbTestSuccess.value = null
         tmdbKeyField.value = value
         pendingTmdbKey = value
         tmdbSaveJob?.cancel()
@@ -156,6 +172,7 @@ class OnboardingViewModel @Inject constructor(
 
     fun onOmdbKeyChange(value: String) {
         omdbTestMessage.value = null
+        omdbTestSuccess.value = null
         omdbKeyField.value = value
         pendingOmdbKey = value
         omdbSaveJob?.cancel()
@@ -224,10 +241,22 @@ class OnboardingViewModel @Inject constructor(
         if (key.isBlank()) return
         viewModelScope.launch {
             flushPendingKeys()
-            tmdbTestMessage.value = metadataService.testTmdbKey(key).fold(
-                onSuccess = { it },
-                onFailure = { it.message ?: it.javaClass.simpleName },
-            )
+            isTestingTmdb.value = true
+            try {
+                metadataService.testTmdbKey(key).fold(
+                    onSuccess = {
+                        tmdbTestSuccess.value = true
+                        tmdbTestMessage.value = it
+                    },
+                    onFailure = {
+                        tmdbTestSuccess.value = false
+                        tmdbTestMessage.value =
+                            it.message ?: it.javaClass.simpleName
+                    },
+                )
+            } finally {
+                isTestingTmdb.value = false
+            }
         }
     }
 
@@ -236,10 +265,22 @@ class OnboardingViewModel @Inject constructor(
         if (key.isBlank()) return
         viewModelScope.launch {
             flushPendingKeys()
-            omdbTestMessage.value = metadataService.testOmdbKey(key).fold(
-                onSuccess = { it },
-                onFailure = { it.message ?: it.javaClass.simpleName },
-            )
+            isTestingOmdb.value = true
+            try {
+                metadataService.testOmdbKey(key).fold(
+                    onSuccess = {
+                        omdbTestSuccess.value = true
+                        omdbTestMessage.value = it
+                    },
+                    onFailure = {
+                        omdbTestSuccess.value = false
+                        omdbTestMessage.value =
+                            it.message ?: it.javaClass.simpleName
+                    },
+                )
+            } finally {
+                isTestingOmdb.value = false
+            }
         }
     }
 

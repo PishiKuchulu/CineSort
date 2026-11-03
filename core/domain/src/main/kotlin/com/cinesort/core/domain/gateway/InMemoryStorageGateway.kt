@@ -6,6 +6,7 @@ import com.cinesort.core.domain.model.FileRef
 import com.cinesort.core.domain.model.Ref
 import com.cinesort.core.domain.model.ScanEvent
 import com.cinesort.core.domain.model.ScannedFile
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -23,10 +24,19 @@ class InMemoryStorageGateway : StorageGateway {
         var lastModified: Long = 0,
         val children: LinkedHashMap<String, Node> = linkedMapOf(),
         var parent: Node? = null,
+        /** Identity of the file's bytes (section-4 audit): copies must preserve it. */
+        var contentHash: String = "",
     )
 
     private val volumes = linkedMapOf<String, Node>()
     private val freeSpace = linkedMapOf<String, Long>()
+
+    /**
+     * Test hook (section-4 audit): when true, [copyVerified] "writes" bytes
+     * whose hash differs from the source while the size stays identical —
+     * the silent same-size corruption the verified copy exists to catch.
+     */
+    var corruptCopyContent: Boolean = false
 
     fun addVolume(volume: String) {
         volumes.getOrPut(volume) { Node("", true) }
@@ -60,13 +70,22 @@ class InMemoryStorageGateway : StorageGateway {
         var node = volumes.getValue(volume)
         for (segment in parentSegments) node = node.children.getValue(segment)
         val name = segments.last()
-        node.children[name] = Node(name, false, size, lastModified, parent = node)
+        node.children[name] = Node(
+            name, false, size, lastModified, parent = node,
+            // Synthetic but stable content identity for the fake's bytes.
+            contentHash = ContentHash.sha256Hex(
+                "fake-content:$path:$size:$lastModified".toByteArray(Charsets.UTF_8),
+            ),
+        )
         return FileRef(path, name, size, lastModified, parentRef.id)
     }
 
     fun exists(path: String): Boolean = resolve(path) != null
 
     fun fileSize(path: String): Long? = resolve(path)?.size
+
+    /** The stored content hash of a file, or null when the path is unknown. */
+    fun contentHashOf(path: String): String? = resolve(path)?.contentHash
 
     fun listNames(dirPath: String): List<String> =
         resolve(dirPath)?.children?.keys?.toList().orEmpty()
@@ -213,7 +232,10 @@ class InMemoryStorageGateway : StorageGateway {
     override suspend fun createFile(dir: DirRef, name: String, mimeType: String, content: ByteArray): FileRef {
         val parentNode = resolve(dir.id) ?: error("parent not found: ${dir.id}")
         require(parentNode.isDirectory) { "not a directory: ${dir.id}" }
-        parentNode.children[name] = Node(name, false, size = content.size.toLong(), parent = parentNode)
+        parentNode.children[name] = Node(
+            name, false, size = content.size.toLong(), parent = parentNode,
+            contentHash = ContentHash.sha256Hex(content),
+        )
         return FileRef(childPath(dir.id, name), name, content.size.toLong(), 0L, dir.id)
     }
 
@@ -247,10 +269,28 @@ class InMemoryStorageGateway : StorageGateway {
         require(free >= fromNode.size) { "insufficient space" }
         require(toNode.children[targetName] == null) { "target already exists" }
         onProgress(fromNode.size)
+        // The "written" bytes: identical to the source normally; the
+        // corruptCopyContent hook swaps in same-size garbage instead.
+        val writtenHash = if (corruptCopyContent) {
+            ContentHash.sha256Hex("corrupted:${fromNode.contentHash}".toByteArray(Charsets.UTF_8))
+        } else {
+            fromNode.contentHash
+        }
         toNode.children[targetName] = Node(
             targetName, false, fromNode.size, fromNode.lastModified, parent = toNode,
+            contentHash = writtenHash,
         )
         freeSpace[destVolume] = free - fromNode.size
+        // Content verification (section-4 audit): a size match is not
+        // enough — when the landed bytes hash differently, the copy is
+        // rolled back (the SAF gateway deletes its .cinesort-part file the
+        // same way) and the copy fails, so the caller never deletes the
+        // source on the strength of a corrupt copy.
+        if (writtenHash != fromNode.contentHash) {
+            toNode.children.remove(targetName)
+            freeSpace[destVolume] = free
+            throw IOException("content hash mismatch for ${file.name}: copied bytes are corrupt")
+        }
         val newPath = childPath(toDir.id, targetName)
         return FileRef(newPath, targetName, fromNode.size, fromNode.lastModified, toDir.id)
     }

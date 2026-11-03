@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -22,7 +23,9 @@ import com.cinesort.core.data.settings.toScanSettings
 import com.cinesort.core.data.work.OrganizeWorker
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.journal.JournalStore
+import com.cinesort.core.domain.journal.OperationRecord
 import com.cinesort.core.domain.journal.OperationState
+import com.cinesort.core.domain.journal.retryableItemIds
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.EntryInfo
 import com.cinesort.core.domain.model.ScannedFile
@@ -104,6 +107,16 @@ data class SessionState(
     val lastRunId: String? = null,
     val workId: UUID? = null,
     val error: String? = null,
+    /** Entries the gateway skipped during the scan (audit A.3-6). */
+    val scanSkippedCount: Int = 0,
+    /** Entries the gateway failed to read during the scan (audit A.3-6). */
+    val scanFailedCount: Int = 0,
+    /** A few "name — reason" samples behind the two counters above. */
+    val scanIssueSamples: List<String> = emptyList(),
+    /** Last enrichment outcome: decoration was requested but unavailable (audit A.3-11). */
+    val metadataUnavailable: Boolean = false,
+    /** Bytes the selected plan exceeds the destination's free space by (audit A.3-5). */
+    val freeSpaceShortfallBytes: Long? = null,
 )
 
 /**
@@ -134,11 +147,18 @@ class OrganizeSession @Inject constructor(
 
     private var scanJob: Job? = null
 
+    // Serializes run starts (audit B.6): confirm and retry must never build
+    // two workers over overlapping files.
+    private val runStartMutex = Mutex()
+
     // Written on the session's IO scope, read from replan paths and the UI
     // (review M-H residual): @Volatile for cross-thread visibility.
     @Volatile
     private var lastSettings: AppSettings = AppSettings()
-    private var destinationRef: DirRef? = null
+
+    /** The settings the current plan was built with (audit B.5 staleness check). */
+    @Volatile
+    private var plannedWithSettings: AppSettings? = null
     private var recentlyModifiedIds: Set<String> = emptySet()
     private var sourceRootNames: Map<String, String> = emptyMap()
 
@@ -173,7 +193,16 @@ class OrganizeSession @Inject constructor(
         if (scanJob?.isActive == true) return
         replanJob?.cancel()
         scanJob = scope.launch {
-            _state.value = SessionState(phase = SessionPhase.SCANNING, stageIndex = 0)
+            // A rescan must not orphan a live run's tracking (audit B.4):
+            // the worker keeps going from its drafts, and the Run screen
+            // finds it through lastRunId/workId — keep both across the reset.
+            val previous = _state.value
+            _state.value = SessionState(
+                phase = SessionPhase.SCANNING,
+                stageIndex = 0,
+                lastRunId = previous.lastRunId,
+                workId = previous.workId,
+            )
             selectionOverrides.clear()
             metadataUnavailable = false
             try {
@@ -213,7 +242,6 @@ class OrganizeSession @Inject constructor(
             return
         }
         val destination = DirRef(destinationEntity.uriString, destinationEntity.name)
-        destinationRef = destination
 
         // Folder-set validation runs on bare document ids (spec 5.8); SAF tree
         // URIs wrap them, so unwrap before comparing.
@@ -236,6 +264,12 @@ class OrganizeSession @Inject constructor(
         val recentlyModified = mutableSetOf<String>()
         val rootNames = mutableMapOf<String, String>()
         var entryOffset = 0
+        // Scan-phase losses are counted and sampled, not discarded
+        // (audit A.3-6): a file the provider failed to read mid-tree used
+        // to vanish silently, and the user read the scan as complete.
+        var scanSkipped = 0
+        var scanFailed = 0
+        val scanIssues = mutableListOf<String>()
 
         for (source in sources) {
             val entity = entityByUri[source.id]
@@ -253,7 +287,9 @@ class OrganizeSession @Inject constructor(
             gateway.scan(
                 root = source,
                 recursive = entity?.includeSubfolders ?: true,
-                maxDepth = entity?.maxDepth ?: scanSettings.maxDepth,
+                // Both depth controls are real (audit A.2-1): the
+                // per-source depth, capped by the global Settings depth.
+                maxDepth = ScanRules.effectiveDepth(entity?.maxDepth, scanSettings.maxDepth),
                 exclude = exclude,
             ).collect { event ->
                 when (event) {
@@ -286,10 +322,28 @@ class OrganizeSession @Inject constructor(
                         }
                         _state.update { it.copy(videosFound = found.size) }
                     }
-                    else -> Unit // skipped / failed entries only move the counters
+                    is com.cinesort.core.domain.model.ScanEvent.Skipped -> {
+                        scanSkipped++
+                        if (scanIssues.size < MAX_SCAN_ISSUE_SAMPLES) {
+                            scanIssues += event.name + " — " + event.reason
+                        }
+                    }
+                    is com.cinesort.core.domain.model.ScanEvent.Failed -> {
+                        scanFailed++
+                        if (scanIssues.size < MAX_SCAN_ISSUE_SAMPLES) {
+                            scanIssues += event.name + " — " + event.reason
+                        }
+                    }
                 }
             }
             entryOffset += lastProgress
+            _state.update {
+                it.copy(
+                    scanSkippedCount = scanSkipped,
+                    scanFailedCount = scanFailed,
+                    scanIssueSamples = scanIssues.toList(),
+                )
+            }
         }
 
         // Parse every item with the anchor parser (spec section 6).
@@ -394,6 +448,16 @@ class OrganizeSession @Inject constructor(
             settings.seriesAddGenres || settings.seriesAddRating
 
     /**
+     * Sets the unavailability flag and mirrors it into the state: Preview
+     * renders a banner from the state copy in CONTINUE mode (audit A.3-11),
+     * where items otherwise silently lose their genres/ratings.
+     */
+    private fun setMetadataUnavailable(value: Boolean) {
+        metadataUnavailable = value
+        _state.update { it.copy(metadataUnavailable = value) }
+    }
+
+    /**
      * Fetches metadata for the unique (type, key, year) queries of the current
      * parse results when decoration is on. Records unavailability for the
      * HOLD behaviour; never throws.
@@ -426,7 +490,7 @@ class OrganizeSession @Inject constructor(
             _state.update { it.copy(phase = SessionPhase.ENRICHING, stageIndex = 2) }
         }
         if (!keys.hasTmdb && !keys.hasOmdb) {
-            metadataUnavailable = true
+            setMetadataUnavailable(true)
             return
         }
         // Queries are built from the override-applied titles (review M-D):
@@ -447,9 +511,9 @@ class OrganizeSession @Inject constructor(
                 // circuit breaker (review M-D) means the same even when a
                 // few cached hits came back, and the signature is only
                 // recorded for a batch that actually delivered.
-                metadataUnavailable = true
+                setMetadataUnavailable(true)
             } else {
-                metadataUnavailable = false
+                setMetadataUnavailable(false)
                 lastEnrichmentSignature = signature
             }
             _state.update { it.copy(metadataByKey = it.metadataByKey + result) }
@@ -457,7 +521,7 @@ class OrganizeSession @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "metadata enrichment failed")
-            metadataUnavailable = true
+            setMetadataUnavailable(true)
         }
     }
 
@@ -527,18 +591,48 @@ class OrganizeSession @Inject constructor(
         }
     }
 
-    /** Re-plans with the latest persisted settings, fetching metadata lazily. */
+    /**
+     * Re-plans with the latest persisted settings, fetching metadata lazily.
+     *
+     * Audit B.5: this used to be a second, unguarded replan gate — its own
+     * launch with no cancellation and no mutex — so it could publish an
+     * older plan over a newer edit-driven one (the exact race review M9
+     * closed for [requestReplan]). It now goes through the same serialized
+     * gate: cancel the pending replan, then read settings → enrich → plan
+     * under [replanMutex].
+     */
     fun refreshSettingsAndReplan() {
-        scope.launch {
+        replanJob?.cancel()
+        replanJob = scope.launch {
             val settings = settingsRepository.current()
             lastSettings = settings
-            if (decorationNeeded(settings)) {
-                // The signature gate inside decides whether a fetch is due.
-                enrichIfNeeded(settings, fromScan = false)
+            replanMutex.withLock {
+                if (decorationNeeded(settings)) {
+                    // The signature gate inside decides whether a fetch is due.
+                    enrichIfNeeded(settings, fromScan = false)
+                }
+                replanInternal()
             }
-            replanInternal()
             if (_state.value.plan.isNotEmpty()) {
                 _state.update { it.copy(phase = SessionPhase.PLANNED, stageIndex = 3) }
+            }
+        }
+    }
+
+    /**
+     * Replans if the persisted settings changed since the current plan was
+     * built (audit B.5): editing Settings and returning to Preview used to
+     * leave the plan on the old settings until some unrelated Preview
+     * action happened to replan. Called when Preview is entered. The
+     * internal OMDb quota timestamp is ignored — it is not a user setting
+     * and changes on its own during enrichment.
+     */
+    fun syncSettingsAndReplanIfChanged() {
+        scope.launch {
+            val planned = plannedWithSettings ?: return@launch
+            val current = settingsRepository.current()
+            if (current.copy(omdbExhaustedUntil = planned.omdbExhaustedUntil) != planned) {
+                refreshSettingsAndReplan()
             }
         }
     }
@@ -562,6 +656,7 @@ class OrganizeSession @Inject constructor(
         val current = _state.value
         if (current.items.isEmpty() || current.destinationSnapshot == null) return
         val settings = lastSettings
+        plannedWithSettings = settings
         val overrides = libraryRepository.titleOverrides()
         var choices = current.conflictChoices
         // Seed the persisted conflict default for unresolved conflicts once.
@@ -604,7 +699,18 @@ class OrganizeSession @Inject constructor(
             }
             out
         }
-        _state.update { it.copy(plan = planned, conflictChoices = choices) }
+        _state.update {
+            it.copy(
+                plan = planned,
+                conflictChoices = choices,
+                // Preview warns before the run starts when the destination
+                // cannot hold the selection (audit A.3-5).
+                freeSpaceShortfallBytes = planner.freeSpaceShortfall(
+                    planned,
+                    current.destinationSnapshot,
+                ),
+            )
+        }
     }
 
     private fun planInput(
@@ -637,18 +743,29 @@ class OrganizeSession @Inject constructor(
      * Applies one edit-sheet correction. [applyToSeries] widens it to every item
      * sharing the item's series/movie key; [remember] persists a title override
      * keyed by the ORIGINAL parse (spec 6.6).
+     *
+     * Returns false when the item is not in the current scan at all, so the
+     * caller can tell the user instead of closing the sheet in silence
+     * (audit B.5). An Unrecognized item has no group key: apply-to-series
+     * degrades to just that item — previously the whole edit was dropped
+     * for exactly the items that need correction most.
      */
     fun applyEdit(
         itemId: String,
         edit: ItemEdit,
         applyToSeries: Boolean,
         remember: Boolean,
-    ) {
+    ): Boolean {
         val current = _state.value
+        if (itemId !in current.parseResults) return false
         val effective = effectiveParseResults()
         val targets = if (applyToSeries) {
-            val groupKey = groupKeyOf(effective[itemId]) ?: return
-            effective.entries.filter { groupKeyOf(it.value) == groupKey }.map { it.key }
+            val groupKey = groupKeyOf(effective[itemId])
+            if (groupKey == null) {
+                listOf(itemId)
+            } else {
+                effective.entries.filter { groupKeyOf(it.value) == groupKey }.map { it.key }
+            }
         } else {
             listOf(itemId)
         }
@@ -666,6 +783,7 @@ class OrganizeSession @Inject constructor(
             }
         }
         requestReplan()
+        return true
     }
 
     private fun buildOverride(
@@ -905,25 +1023,75 @@ class OrganizeSession @Inject constructor(
     /**
      * Writes drafts for the selected READY items and enqueues the organize
      * worker. Returns the new run id, or null when nothing is runnable.
+     *
+     * Audit B.6: run starts are serialized on [runStartMutex], refused
+     * while a run is active, and enqueued as unique work — confirm/retry
+     * spam (or the skip-preview auto-run racing a manual tap) used to be
+     * able to start two workers over the same files, and the second one
+     * journaled a false FAILED for every file the first had moved.
      */
-    suspend fun confirmAndRun(): String? {
-        val selected = _state.value.plan.filter {
-            it.selected && it.status == PlannedStatus.READY
+    suspend fun confirmAndRun(): String? = runStartMutex.withLock {
+        if (_state.value.phase == SessionPhase.RUNNING) {
+            null
+        } else {
+            val selected = _state.value.plan.filter {
+                it.selected && it.status == PlannedStatus.READY
+            }
+            if (selected.isEmpty()) {
+                null
+            } else {
+                val runId = UUID.randomUUID().toString()
+                draftRepository.writePlannedItems(runId, selected)
+                journalConflictSkips(runId)
+                val request = OneTimeWorkRequestBuilder<OrganizeWorker>()
+                    .setInputData(
+                        Data.Builder().putString(OrganizeWorker.KEY_RUN_ID, runId).build(),
+                    )
+                    .addTag(runId)
+                    .build()
+                WorkManager.getInstance(appContext).enqueueUniqueWork(
+                    UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
+                _state.update {
+                    it.copy(phase = SessionPhase.RUNNING, lastRunId = runId, workId = request.id)
+                }
+                runId
+            }
         }
-        if (selected.isEmpty()) return null
-        val runId = UUID.randomUUID().toString()
-        draftRepository.writePlannedItems(runId, selected)
-        val request = OneTimeWorkRequestBuilder<OrganizeWorker>()
-            .setInputData(
-                Data.Builder().putString(OrganizeWorker.KEY_RUN_ID, runId).build(),
-            )
-            .addTag(runId)
-            .build()
-        WorkManager.getInstance(appContext).enqueue(request)
-        _state.update {
-            it.copy(phase = SessionPhase.RUNNING, lastRunId = runId, workId = request.id)
-        }
-        return runId
+    }
+
+    /**
+     * Journals this run's conflict-skips (audit A.3-1): items the user
+     * resolved as Skip in Preview never become drafts, so without a journal
+     * row the run leaves no trace of them and the report's skipped counter
+     * has nothing to count. The rows key on the run id; the run row itself
+     * is created by the worker's executor when the work starts, and
+     * operations are only ever read together with their run.
+     */
+    private suspend fun journalConflictSkips(runId: String) {
+        _state.value.plan
+            .filter { it.status == PlannedStatus.SKIPPED }
+            .forEach { item ->
+                journalStore.insertOperation(
+                    OperationRecord(
+                        id = UUID.randomUUID().toString(),
+                        runId = runId,
+                        itemId = item.id,
+                        sourceParentId = item.scanned.file.parentId,
+                        sourceParentName = item.scanned.parentDir.name,
+                        sourceFileId = item.scanned.file.id,
+                        fileName = item.scanned.file.name,
+                        finalName = item.targetFileName,
+                        destinationParentId = "",
+                        destinationSegments = item.targetSegments,
+                        state = OperationState.SKIPPED,
+                        bytesTotal = item.scanned.file.size,
+                        crossVolume = item.crossVolume,
+                    ),
+                )
+            }
     }
 
     /** Live work infos for the current (or given) run, for the Run screen. */
@@ -942,44 +1110,58 @@ class OrganizeSession @Inject constructor(
 
     /**
      * Retries the failed items of [runId] as a new run. Failed items are the
-     * journal items that have any operation not DONE/SKIPPED (the executor
-     * leaves a failed operation in its last in-progress state, and FAILED when
-     * a state was recorded). Prefers the in-memory plan for full fidelity and
-     * falls back to drafts rebuilt from the journal after process death.
+     * journal items [retryableItemIds] selects — a FAILED or never-finished
+     * operation, and never an item an Undo already restored (audit A.3-3:
+     * retry-after-undo used to re-organize deliberately returned files).
+     * Prefers the in-memory plan for full fidelity and falls back to drafts
+     * rebuilt from the journal after process death. Serialized with
+     * [confirmAndRun] on [runStartMutex] (audit B.6).
      */
-    suspend fun retryFailed(runId: String): String? {
-        val operations = journalStore.operationsOf(runId)
-        val failedItemIds = operations
-            .groupBy { it.itemId }
-            .filterValues { itemOps ->
-                itemOps.any {
-                    it.state != OperationState.DONE && it.state != OperationState.SKIPPED
-                }
-            }
-            .keys
-        if (failedItemIds.isEmpty()) return null
-        val newRunId = UUID.randomUUID().toString()
-        val fromPlan = _state.value.plan.filter { it.id in failedItemIds }
-        if (fromPlan.size == failedItemIds.size && fromPlan.isNotEmpty()) {
-            draftRepository.writePlannedItems(
-                newRunId,
-                fromPlan.map { it.copy(selected = true, status = PlannedStatus.READY) },
-            )
+    suspend fun retryFailed(runId: String): String? = runStartMutex.withLock {
+        if (_state.value.phase == SessionPhase.RUNNING) {
+            null
         } else {
-            val failedOps = operations.filter { it.itemId in failedItemIds }
-            draftRepository.writeRetryDrafts(newRunId, failedOps)
+            val operations = journalStore.operationsOf(runId)
+            val failedItemIds = retryableItemIds(operations)
+            if (failedItemIds.isEmpty()) {
+                null
+            } else {
+                val newRunId = UUID.randomUUID().toString()
+                val fromPlan = _state.value.plan.filter { it.id in failedItemIds }
+                if (fromPlan.size == failedItemIds.size && fromPlan.isNotEmpty()) {
+                    draftRepository.writePlannedItems(
+                        newRunId,
+                        fromPlan.map { it.copy(selected = true, status = PlannedStatus.READY) },
+                    )
+                } else {
+                    // Poster rows belong to their item's main row; they are
+                    // not retryable work and must not pose as a main op.
+                    val failedOps = operations.filter {
+                        it.itemId in failedItemIds && !it.isPoster
+                    }
+                    draftRepository.writeRetryDrafts(newRunId, failedOps)
+                }
+                val request = OneTimeWorkRequestBuilder<OrganizeWorker>()
+                    .setInputData(
+                        Data.Builder().putString(OrganizeWorker.KEY_RUN_ID, newRunId).build(),
+                    )
+                    .addTag(newRunId)
+                    .build()
+                WorkManager.getInstance(appContext).enqueueUniqueWork(
+                    UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
+                _state.update {
+                    it.copy(
+                        phase = SessionPhase.RUNNING,
+                        lastRunId = newRunId,
+                        workId = request.id,
+                    )
+                }
+                newRunId
+            }
         }
-        val request = OneTimeWorkRequestBuilder<OrganizeWorker>()
-            .setInputData(
-                Data.Builder().putString(OrganizeWorker.KEY_RUN_ID, newRunId).build(),
-            )
-            .addTag(newRunId)
-            .build()
-        WorkManager.getInstance(appContext).enqueue(request)
-        _state.update {
-            it.copy(phase = SessionPhase.RUNNING, lastRunId = newRunId, workId = request.id)
-        }
-        return newRunId
     }
 
     /** Bare document id (`primary:Movies/Library`) for a stored tree URI string. */
@@ -998,7 +1180,11 @@ class OrganizeSession @Inject constructor(
     companion object {
         const val ERROR_NO_SETUP = "no-setup"
         const val WARNING_METADATA_HELD = "metadata unavailable — held"
+
+        /** The one organize work chain: a second run never overlaps the first (audit B.6). */
+        const val UNIQUE_WORK_NAME = "organize-run"
         private const val MAX_SNAPSHOT_DEPTH = 3
         private const val SNAPSHOT_CONCURRENCY = 8
+        private const val MAX_SCAN_ISSUE_SAMPLES = 5
     }
 }

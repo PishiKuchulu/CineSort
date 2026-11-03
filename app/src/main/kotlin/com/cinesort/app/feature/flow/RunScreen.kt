@@ -27,10 +27,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -40,6 +42,7 @@ import com.cinesort.app.R
 import com.cinesort.core.designsystem.component.ConfirmDialog
 import com.cinesort.core.designsystem.component.EmptyState
 import com.cinesort.core.designsystem.component.ReelProgress
+import com.cinesort.core.designsystem.component.toPersianDigits
 
 /**
  * Run screen (spec 10.4 screen 6): film-reel progress mirroring the worker,
@@ -54,7 +57,7 @@ fun RunScreen(
     onOpenHome: () -> Unit = {},
     viewModel: RunViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // POST_NOTIFICATIONS on Android 13+ so the foreground progress
@@ -78,6 +81,19 @@ fun RunScreen(
         if (state.navigateToReport && runId != null) {
             viewModel.consumeNavigation()
             onOpenReport(runId)
+        }
+    }
+
+    // Terminal-state haptics (audit 1-3): completion and failure are felt,
+    // not only seen.
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(state.workState) {
+        when (state.workState) {
+            WorkInfo.State.SUCCEEDED ->
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED ->
+                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+            else -> Unit
         }
     }
 
@@ -134,7 +150,20 @@ fun RunScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button(
+                    // Direct route to this run's Report (audit 1-11),
+                    // where the per-item reasons and Retry live. The
+                    // worker publishes no failure reason of its own, so
+                    // the Report is the reason surface.
+                    val failedRunId = state.runId
+                    if (failedRunId != null) {
+                        Button(
+                            onClick = { onOpenReport(failedRunId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.run_view_report))
+                        }
+                    }
+                    OutlinedButton(
                         onClick = onBack,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -161,12 +190,23 @@ fun RunScreen(
                     }
                     ReelProgress(
                         progress = percent / 100f,
-                        persianDigits = false,
+                        persianDigits = state.persianDigits,
                         currentFileName = state.currentFile,
+                        progressDescription = stringResource(
+                            R.string.run_progress_percent,
+                            percent,
+                        ),
                     )
                     Text(
                         text = if (total > 0) {
                             stringResource(R.string.run_counts, done, total)
+                                .let {
+                                    if (state.persianDigits) {
+                                        it.toPersianDigits()
+                                    } else {
+                                        it
+                                    }
+                                }
                         } else {
                             stringResource(R.string.run_preparing)
                         },
@@ -175,6 +215,15 @@ fun RunScreen(
                     if (state.currentFile == null) {
                         Text(
                             text = stringResource(R.string.run_preparing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // The worker's poster phase is progress, not a stall
+                    // (audit A.3-10): say what the 100% pause actually is.
+                    if (state.phase == com.cinesort.core.data.work.OrganizeWorker.PHASE_POSTERS) {
+                        Text(
+                            text = stringResource(R.string.run_phase_posters),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

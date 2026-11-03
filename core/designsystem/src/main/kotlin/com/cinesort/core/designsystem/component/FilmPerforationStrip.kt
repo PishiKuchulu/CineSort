@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 
 /** Film-strip perforation motif used sparingly as a header/divider (spec 10.1). */
@@ -24,6 +25,9 @@ fun FilmPerforationStrip(
 ) {
     Row(
         modifier = modifier
+            // Purely decorative: keep the whole strip out of the
+            // accessibility tree.
+            .clearAndSetSemantics {}
             .fillMaxWidth()
             .height(18.dp)
             .background(MaterialTheme.colorScheme.surfaceContainer)

@@ -24,7 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,7 +49,7 @@ import com.cinesort.core.designsystem.component.SourceCard
 fun SourcesScreen(
     viewModel: SourcesViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -80,7 +80,31 @@ fun SourcesScreen(
         }
     }
 
+    // Validity is re-checked on entry (audit B.3): a grant revoked in the
+    // system picker while this tab sat in the back stack used to keep
+    // showing OK.
+    LaunchedEffect(Unit) { viewModel.refreshValidity() }
+
+    val alreadyAddedMessage =
+        stringResource(R.string.sources_already_added)
+    LaunchedEffect(state.sourceAlreadyExists) {
+        if (state.sourceAlreadyExists) {
+            snackbarHostState.showSnackbar(alreadyAddedMessage)
+            viewModel.consumeSourceAlreadyExists()
+        }
+    }
+
+    val undoWarningMessage =
+        stringResource(R.string.sources_destination_undo_warning)
+    LaunchedEffect(state.destinationUndoWarning) {
+        if (state.destinationUndoWarning) {
+            snackbarHostState.showSnackbar(undoWarningMessage)
+            viewModel.consumeDestinationUndoWarning()
+        }
+    }
+
     var pendingRemoval by remember { mutableStateOf<SourceFolderEntity?>(null) }
+    var pendingClearDestination by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.sources_title)) }) },
@@ -130,6 +154,18 @@ fun SourcesScreen(
                     )
                 }
             }
+            if (state.destination != null) {
+                item {
+                    // Removing the destination was impossible in-app
+                    // (audit A.1-2); Home's canScan recomputes from the
+                    // cleared value, so no stale enabled state survives.
+                    androidx.compose.material3.TextButton(
+                        onClick = { pendingClearDestination = true },
+                    ) {
+                        Text(stringResource(R.string.sources_remove_destination))
+                    }
+                }
+            }
 
             item {
                 Text(
@@ -158,7 +194,9 @@ fun SourcesScreen(
                         includeSubfoldersLabel = stringResource(
                             R.string.sources_include_subfolders,
                         ),
-                        depthLabel = stringResource(R.string.sources_depth, source.maxDepth),
+                        // With the stepper wired, the label is the plain
+                        // "Scan depth"; the value shows in the stepper.
+                        depthLabel = stringResource(R.string.sources_depth_label),
                         statusLabel = stringResource(
                             if (isValid) {
                                 R.string.sources_status_ok
@@ -174,6 +212,16 @@ fun SourcesScreen(
                                 source.maxDepth,
                             )
                         },
+                        depthValue = source.maxDepth,
+                        onDepthChange = { depth ->
+                            viewModel.onSourceOptionsChanged(
+                                source.id,
+                                source.includeSubfolders,
+                                depth,
+                            )
+                        },
+                        depthDecreaseLabel = stringResource(R.string.common_decrease),
+                        depthIncreaseLabel = stringResource(R.string.common_increase),
                         trailing = {
                             SourceOverflowMenu(
                                 onRemove = { pendingRemoval = source },
@@ -212,6 +260,21 @@ fun SourcesScreen(
                 pendingRemoval = null
             },
             onDismiss = { pendingRemoval = null },
+        )
+    }
+
+    if (pendingClearDestination) {
+        ConfirmDialog(
+            title = stringResource(R.string.sources_remove_destination_title),
+            message = stringResource(R.string.sources_remove_destination_message),
+            confirmLabel = stringResource(R.string.common_remove),
+            dismissLabel = stringResource(R.string.common_cancel),
+            isDestructive = true,
+            onConfirm = {
+                viewModel.onClearDestination()
+                pendingClearDestination = false
+            },
+            onDismiss = { pendingClearDestination = false },
         )
     }
 }

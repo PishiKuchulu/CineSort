@@ -18,6 +18,7 @@ import com.cinesort.core.data.repository.RunDraftRepository
 import com.cinesort.core.data.repository.SettingsRepository
 import com.cinesort.core.domain.execute.OrganizeExecutor
 import com.cinesort.core.domain.gateway.StorageGateway
+import com.cinesort.core.domain.journal.JournalMaintenance
 import com.cinesort.core.domain.journal.JournalStore
 import com.cinesort.core.domain.journal.OperationRecord
 import com.cinesort.core.domain.journal.OperationState
@@ -36,6 +37,11 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 
 /**
@@ -163,10 +169,20 @@ class OrganizeWorker @AssistedInject constructor(
             Timber.w(e, "foreground promotion refused; continuing in background")
         }
 
+        val settings = settingsRepository.current()
         val executor = OrganizeExecutor(gateway, journalStore, destinationRoot)
         var lastPercent = -1
         val report = try {
-            executor.execute(runId, pendingItems) { progress ->
+            executor.execute(
+                runId = runId,
+                items = pendingItems,
+                // The run records the settings it actually ran with
+                // (audit A.3-7): Report's share text reads this snapshot
+                // instead of the settings as they are NOW.
+                optionsSnapshot = settingsSnapshot(settings),
+                destinationId = destinationRoot.id,
+                destinationName = destinationRoot.name,
+            ) { progress ->
                 val percent = if (progress.totalItems == 0) {
                     100
                 } else {
@@ -196,8 +212,19 @@ class OrganizeWorker @AssistedInject constructor(
             return Result.failure()
         }
 
-        val settings = settingsRepository.current()
         if (settings.downloadPosters) {
+            // The executor already reported 100% (audit A.3-10): publish
+            // the poster phase by name so the Run screen and notification
+            // stop claiming the run is done while posters still download.
+            setProgressAsync(
+                Data.Builder()
+                    .putInt(KEY_PROGRESS, 100)
+                    .putString(KEY_PHASE, PHASE_POSTERS)
+                    .build(),
+            )
+            setForegroundAsync(
+                createForegroundInfo(percent = 100, currentFile = null, total = pendingItems.size),
+            )
             downloadPosters(runId, pendingItems, destinationRoot)
         }
         if (settings.removeEmptyFolders) {
@@ -220,23 +247,21 @@ class OrganizeWorker @AssistedInject constructor(
      * caller. A run whose process died keeps operations in non-final states
      * forever; when a new run starts, those stale ops of every OTHER unfinished
      * run are closed as FAILED ("interrupted") so the history never shows
-     * phantom in-progress rows. Final states (DONE / FAILED / SKIPPED / UNDONE)
-     * are never touched, and a cleanup failure never fails the new run.
+     * phantom in-progress rows. Audit A.3-4: the run itself is finished too —
+     * [JournalMaintenance.closeInterruptedRun] also stamps `finishedAt`, which
+     * used to stay null forever, leaving the run eternally "unfinished" (and
+     * never Undo-eligible) in History. Final states (DONE / FAILED / SKIPPED /
+     * UNDONE) are never touched, and a cleanup failure never fails the new run.
      */
     private suspend fun closeInterruptedRuns(currentRunId: String) {
         try {
             for (run in journalStore.unfinishedRuns()) {
                 if (run.id == currentRunId) continue
-                journalStore.operationsOf(run.id)
-                    .filter { it.state in NON_FINAL_STATES }
-                    .forEach { op ->
-                        journalStore.updateOperation(
-                            op.copy(
-                                state = OperationState.FAILED,
-                                failureReason = "interrupted",
-                            ),
-                        )
-                    }
+                JournalMaintenance.closeInterruptedRun(
+                    journalStore,
+                    run.id,
+                    System.currentTimeMillis(),
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -244,6 +269,20 @@ class OrganizeWorker @AssistedInject constructor(
             Timber.w(e, "stale-run journal cleanup failed")
         }
     }
+
+    /** Compact one-line summary of the settings a run executes with (audit A.3-7). */
+    private fun settingsSnapshot(settings: com.cinesort.core.data.settings.AppSettings): String =
+        listOf(
+            "movieAddGenres: ${settings.movieAddGenres}",
+            "movieAddRating: ${settings.movieAddRating}",
+            "seriesAddGenres: ${settings.seriesAddGenres}",
+            "seriesAddRating: ${settings.seriesAddRating}",
+            "maxGenres: ${settings.maxGenres}",
+            "skipPreview: ${settings.skipPreview}",
+            "metadataUnavailable: ${settings.metadataUnavailable.name}",
+            "downloadPosters: ${settings.downloadPosters}",
+            "conflictDefault: ${settings.conflictDefault.name}",
+        ).joinToString("; ")
 
     /**
      * Review L-F: scans no longer delete files, so stale `.cinesort-part`
@@ -326,44 +365,68 @@ class OrganizeWorker @AssistedInject constructor(
                 PosterTarget(folderSegments, url, item, createdDirs),
             )
         }
-        for (target in byFolder.values) {
-            try {
-                var dir: DirRef? = destinationRoot
-                for (segment in target.segments) {
-                    dir = dir?.let { gateway.findChildDir(it, segment) }
-                    if (dir == null) break
+        // Bounded parallelism (section-3 audit): the downloads used to
+        // run strictly one after another — each with a 15 s timeout —
+        // after the moves had already reported 100 %, so a run with
+        // hundreds of folders could sit in the poster phase for minutes.
+        // Three at a time keeps the phase short without stampeding the
+        // provider or the SAF gateway; the phase itself is published
+        // (KEY_PHASE) before this starts. Each target stays independent:
+        // failures are logged per folder and never fail the run.
+        coroutineScope {
+            val semaphore = Semaphore(MAX_PARALLEL_POSTER_DOWNLOADS)
+            byFolder.values.map { target ->
+                async {
+                    semaphore.withPermit {
+                        downloadOnePoster(runId, target, destinationRoot)
+                    }
                 }
-                val folder = dir ?: continue
-                val exists = gateway.listChildren(folder).any { child ->
-                    !child.isDirectory && child.ref.name.equals(POSTER_FILE_NAME, ignoreCase = true)
-                }
-                if (exists) continue
-                val bytes = PosterDownloader.fetch(target.url) ?: continue
-                val created = gateway.createFile(folder, POSTER_FILE_NAME, "image/jpeg", bytes)
-                journalStore.insertOperation(
-                    OperationRecord(
-                        id = UUID.randomUUID().toString(),
-                        runId = runId,
-                        itemId = target.item.id,
-                        sourceParentId = folder.id,
-                        sourceParentName = folder.name,
-                        sourceFileId = created.id,
-                        fileName = POSTER_FILE_NAME,
-                        finalName = POSTER_FILE_NAME,
-                        destinationParentId = folder.id,
-                        destinationSegments = target.segments,
-                        state = OperationState.DONE,
-                        bytesTotal = bytes.size.toLong(),
-                        bytesDone = bytes.size.toLong(),
-                        isPoster = true,
-                        createdDirs = target.createdDirs,
-                    ),
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "poster save failed for %s", target.segments.joinToString("/"))
+            }.awaitAll()
+        }
+    }
+
+    /** Downloads and journals one folder's poster; see [downloadPosters]. */
+    private suspend fun downloadOnePoster(
+        runId: String,
+        target: PosterTarget,
+        destinationRoot: DirRef,
+    ) {
+        try {
+            var dir: DirRef? = destinationRoot
+            for (segment in target.segments) {
+                dir = dir?.let { gateway.findChildDir(it, segment) }
+                if (dir == null) break
             }
+            val folder = dir ?: return
+            val exists = gateway.listChildren(folder).any { child ->
+                !child.isDirectory && child.ref.name.equals(POSTER_FILE_NAME, ignoreCase = true)
+            }
+            if (exists) return
+            val bytes = PosterDownloader.fetch(target.url) ?: return
+            val created = gateway.createFile(folder, POSTER_FILE_NAME, "image/jpeg", bytes)
+            journalStore.insertOperation(
+                OperationRecord(
+                    id = UUID.randomUUID().toString(),
+                    runId = runId,
+                    itemId = target.item.id,
+                    sourceParentId = folder.id,
+                    sourceParentName = folder.name,
+                    sourceFileId = created.id,
+                    fileName = POSTER_FILE_NAME,
+                    finalName = POSTER_FILE_NAME,
+                    destinationParentId = folder.id,
+                    destinationSegments = target.segments,
+                    state = OperationState.DONE,
+                    bytesTotal = bytes.size.toLong(),
+                    bytesDone = bytes.size.toLong(),
+                    isPoster = true,
+                    createdDirs = target.createdDirs,
+                ),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "poster save failed for %s", target.segments.joinToString("/"))
         }
     }
 
@@ -479,14 +542,6 @@ class OrganizeWorker @AssistedInject constructor(
     }
 
     companion object {
-        /** Operation states an interrupted run can be stuck in (review M-B). */
-        val NON_FINAL_STATES = setOf(
-            OperationState.PENDING,
-            OperationState.DIRS_READY,
-            OperationState.MOVING,
-            OperationState.COPYING,
-            OperationState.VERIFIED,
-        )
         const val POSTER_FILE_NAME = "poster.jpg"
 
         /** Temp-file suffix of verified copies; mirrors the SAF gateway's (review L-F). */
@@ -502,6 +557,13 @@ class OrganizeWorker @AssistedInject constructor(
         const val KEY_FAILED_ITEMS = "failedItems"
         const val KEY_SKIPPED_ITEMS = "skippedItems"
         const val KEY_CURRENT_FILE = "currentFile"
+        const val KEY_PHASE = "phase"
+
+        /** Progress phase after the moves reach 100%: poster downloads (audit A.3-10). */
+        const val PHASE_POSTERS = "posters"
+
+        /** Concurrent poster downloads within the poster phase (section-3 audit). */
+        const val MAX_PARALLEL_POSTER_DOWNLOADS = 3
         val JUNK_EXTENSIONS = setOf("nfo", "txt", "jpg", "url", "nomedia")
     }
 }

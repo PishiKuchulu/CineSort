@@ -78,6 +78,19 @@ object AppUpdateChecker {
         "https://api.github.com/repos/PishiKuchulu/CineSort/releases?per_page=20"
     private const val USER_AGENT = "CineSort-Updater"
 
+    /** Automatic (on-launch) checks run at most once per day (section-3
+     *  audit); manual checks from Settings are never throttled. */
+    const val AUTO_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+    /**
+     * True when an automatic check is due: never checked before
+     * ([lastCheckAtMillis] = 0), or the last performed check is at least
+     * [AUTO_CHECK_INTERVAL_MS] old. A stamp in the future (clock skew)
+     * counts as not due.
+     */
+    fun isAutoCheckDue(lastCheckAtMillis: Long, nowMillis: Long): Boolean =
+        lastCheckAtMillis <= 0L || nowMillis - lastCheckAtMillis >= AUTO_CHECK_INTERVAL_MS
+
     /**
      * The only hosts a release-download redirect may land on: github.com
      * itself (no redirect) and GitHub's release-asset CDN hosts. Exact

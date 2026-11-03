@@ -32,12 +32,15 @@ data class SourcesUiState(
     val sources: List<SourceFolderEntity> = emptyList(),
     val sourceValidity: Map<Long, Boolean> = emptyMap(),
     val rootsResult: RootsResultUi? = null,
+    val sourceAlreadyExists: Boolean = false,
+    val destinationUndoWarning: Boolean = false,
 )
 
 @HiltViewModel
 class SourcesViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val storageGateway: StorageGateway,
+    private val journalStore: com.cinesort.core.domain.journal.JournalStore,
 ) : ViewModel() {
 
     private val ensureRoots = EnsureLibraryRootsUseCase(storageGateway)
@@ -46,6 +49,8 @@ class SourcesViewModel @Inject constructor(
     private val destinationFree = MutableStateFlow<Long?>(null)
     private val sourceValidity = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
     private val rootsResult = MutableStateFlow<RootsResultUi?>(null)
+    private val sourceAlreadyExists = MutableStateFlow(false)
+    private val destinationUndoWarning = MutableStateFlow(false)
 
     val uiState: StateFlow<SourcesUiState> = combine(
         libraryRepository.destination,
@@ -63,6 +68,10 @@ class SourcesViewModel @Inject constructor(
         state.copy(destinationFreeBytes = free)
     }.combine(rootsResult) { state, roots ->
         state.copy(rootsResult = roots)
+    }.combine(sourceAlreadyExists) { state, value ->
+        state.copy(sourceAlreadyExists = value)
+    }.combine(destinationUndoWarning) { state, value ->
+        state.copy(destinationUndoWarning = value)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -99,6 +108,11 @@ class SourcesViewModel @Inject constructor(
     /** Destination picked: persist it, then bootstrap the Movie / Tv series roots. */
     fun onDestinationPicked(uriString: String, name: String) {
         viewModelScope.launch {
+            // The destination this replaces (audit A.1-2): runs recorded
+            // before the run record carried its own destination resolve
+            // Undo against the CURRENT destination — moving the root makes
+            // those undos aim at the wrong tree, and the user must be told.
+            val previousUri = libraryRepository.destinationOnce()?.uriString
             // Bootstrap first, persist only on success (review H3): a bare launch
             // used to crash the app when ensureRoots threw, after the destination
             // had already been saved.
@@ -109,6 +123,13 @@ class SourcesViewModel @Inject constructor(
                     created = result.created,
                     found = result.found,
                 )
+                if (previousUri != null && previousUri != uriString) {
+                    val legacyUndos = journalStore.recentRuns(50).any { run ->
+                        run.finishedAt != null && !run.undone &&
+                            run.destinationId.isBlank()
+                    }
+                    if (legacyUndos) destinationUndoWarning.value = true
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -126,13 +147,29 @@ class SourcesViewModel @Inject constructor(
 
     fun onSourcePicked(uriString: String, name: String) {
         viewModelScope.launch {
-            libraryRepository.addSource(
+            val result = libraryRepository.addSource(
                 uriString = uriString,
                 name = name,
                 includeSubfolders = true,
                 maxDepth = DEFAULT_SOURCE_DEPTH,
             )
+            // A duplicate pick used to look like nothing happened
+            // (audit B.3); the screen shows a message now.
+            if (result.alreadyExisted) sourceAlreadyExists.value = true
         }
+    }
+
+    /** Removes the destination grant entirely (audit A.1-2). */
+    fun onClearDestination() {
+        viewModelScope.launch { libraryRepository.clearDestination() }
+    }
+
+    fun consumeSourceAlreadyExists() {
+        sourceAlreadyExists.value = false
+    }
+
+    fun consumeDestinationUndoWarning() {
+        destinationUndoWarning.value = false
     }
 
     fun onRemoveSource(id: Long) {

@@ -6,7 +6,6 @@ import androidx.work.WorkInfo
 import com.cinesort.app.orchestration.OrganizeSession
 import com.cinesort.core.data.work.OrganizeWorker
 import com.cinesort.core.domain.journal.JournalStore
-import com.cinesort.core.domain.journal.OperationState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -25,10 +24,13 @@ data class RunUiState(
     val doneItems: Int = 0,
     val totalItems: Int = 0,
     val currentFile: String? = null,
+    /** Worker phase marker ("posters") once the moves are done (audit A.3-10). */
+    val phase: String? = null,
     val workState: WorkInfo.State? = null,
     val journalDone: Int = 0,
     val showCancelConfirm: Boolean = false,
     val navigateToReport: Boolean = false,
+    val persianDigits: Boolean = false,
 ) {
     val isFinished: Boolean
         get() = workState == WorkInfo.State.SUCCEEDED ||
@@ -45,6 +47,7 @@ data class RunUiState(
 class RunViewModel @Inject constructor(
     private val session: OrganizeSession,
     private val journalStore: JournalStore,
+    private val settingsRepository: com.cinesort.core.data.repository.SettingsRepository,
 ) : ViewModel() {
 
     private val runId = MutableStateFlow<String?>(null)
@@ -52,6 +55,7 @@ class RunViewModel @Inject constructor(
     private val doneItems = MutableStateFlow(0)
     private val totalItems = MutableStateFlow(0)
     private val currentFile = MutableStateFlow<String?>(null)
+    private val phase = MutableStateFlow<String?>(null)
     private val workState = MutableStateFlow<WorkInfo.State?>(null)
     private val journalDone = MutableStateFlow(0)
     private val showCancelConfirm = MutableStateFlow(false)
@@ -72,12 +76,18 @@ class RunViewModel @Inject constructor(
             currentFile = current,
         )
     }.combine(workState) { state, value -> state.copy(workState = value) }
+        .combine(phase) { state, value -> state.copy(phase = value) }
         .combine(journalDone) { state, value -> state.copy(journalDone = value) }
         .combine(showCancelConfirm) { state, value ->
             state.copy(showCancelConfirm = value)
         }
         .combine(navigateToReport) { state, value ->
             state.copy(navigateToReport = value)
+        }
+        .combine(settingsRepository.settings) { state, settings ->
+            // The Run screen was the one screen ignoring the user's digit
+            // preference (hard-coded Latin digits — granular audit 1-11).
+            state.copy(persianDigits = settings.persianDigits)
         }
         .stateIn(
             scope = viewModelScope,
@@ -116,6 +126,7 @@ class RunViewModel @Inject constructor(
                     totalItems.value,
                 )
                 currentFile.value = progress.getString(OrganizeWorker.KEY_CURRENT_FILE)
+                progress.getString(OrganizeWorker.KEY_PHASE)?.let { phase.value = it }
                 if (info.state == WorkInfo.State.SUCCEEDED && !reportNavigated) {
                     reportNavigated = true
                     navigateToReport.value = true
@@ -124,12 +135,20 @@ class RunViewModel @Inject constructor(
         }
         pollJob = viewModelScope.launch {
             while (isActive) {
-                val ops = journalStore.operationsOf(id)
-                journalDone.value = ops
-                    .filter { !it.isCompanion }
-                    .count { it.state == OperationState.DONE }
-                if (totalItems.value == 0 && ops.isNotEmpty()) {
-                    totalItems.value = ops.map { it.itemId }.distinct().size
+                // Counting-size summary, not the whole journal
+                // (section-3 audit): this poll used to materialize every
+                // operation record of a growing run once a second for the
+                // run's entire lifetime. The summary carries the same
+                // counts via the shared definition — posters are not
+                // item progress (audit B.9).
+                val summary = journalStore.operationSummary(id)
+                journalDone.value =
+                    com.cinesort.core.domain.journal.countFromItemBestStates(
+                        summary,
+                        runFinished = false,
+                    ).done
+                if (totalItems.value == 0 && summary.bestStateByItem.isNotEmpty()) {
+                    totalItems.value = summary.bestStateByItem.size
                 }
                 val state = workState.value
                 if (state == WorkInfo.State.SUCCEEDED ||
@@ -161,6 +180,9 @@ class RunViewModel @Inject constructor(
     }
 
     companion object {
-        private const val POLL_INTERVAL_MS = 1_000L
+        // 2.5 s (section-3 audit): the summary query is cheap, but the
+        // worker's own progress flow already drives the bar — this poll
+        // is only the independent journal cross-check.
+        private const val POLL_INTERVAL_MS = 2_500L
     }
 }

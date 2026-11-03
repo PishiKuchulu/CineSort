@@ -51,6 +51,24 @@ class AppUpdateCheckerTest {
         assertFalse(VersionNumbers.isNewer("", ""))
     }
 
+    // ---------------------------------------------------------- auto-check throttle
+
+    @Test
+    fun autoCheckIsDueWhenNeverCheckedOrADayOld() {
+        val day = AppUpdateChecker.AUTO_CHECK_INTERVAL_MS
+        assertEquals(24L * 60 * 60 * 1000, day)
+        // Never checked (no stamp).
+        assertTrue(AppUpdateChecker.isAutoCheckDue(0L, 1_700_000_000_000L))
+        // Just checked, and just under a day ago: not due.
+        assertFalse(AppUpdateChecker.isAutoCheckDue(1_000L, 1_000L))
+        assertFalse(AppUpdateChecker.isAutoCheckDue(1_000L, 1_000L + day - 1))
+        // Exactly a day old, and older: due.
+        assertTrue(AppUpdateChecker.isAutoCheckDue(1_000L, 1_000L + day))
+        assertTrue(AppUpdateChecker.isAutoCheckDue(1_000L, 1_000L + 2 * day))
+        // A stamp in the future (clock skew) is not due.
+        assertFalse(AppUpdateChecker.isAutoCheckDue(2_000L, 1_000L))
+    }
+
     // ---------------------------------------------------------- redirect host allow-list
 
     @Test

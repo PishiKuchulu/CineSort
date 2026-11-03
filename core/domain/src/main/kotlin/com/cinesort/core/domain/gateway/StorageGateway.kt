@@ -38,7 +38,13 @@ interface StorageGateway {
         toDir: DirRef,
     ): FileRef
 
-    /** Streams the file into [toDir] under its original name, verifying the byte count. */
+    /**
+     * Streams the file into [toDir] under [targetName], verifying the byte
+     * count AND the SHA-256 content hash: the destination bytes are re-read
+     * and hashed before this returns, so a same-size corrupted copy throws
+     * instead of letting the caller delete the only good source
+     * (section-4 audit).
+     */
     suspend fun copyVerified(
         file: FileRef,
         toDir: DirRef,

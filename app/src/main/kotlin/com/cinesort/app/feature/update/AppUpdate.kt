@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -32,12 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
@@ -86,6 +89,15 @@ class AppUpdateController(context: Context) {
     var state by mutableStateOf<State>(State.Idle)
         private set
 
+    /**
+     * True when the startup sweep found a leftover `.part` file from an
+     * interrupted download (audit B.11): the partial used to be deleted
+     * silently, so a cancelled or killed download left no trace anywhere.
+     * Settings shows a note while this is set; a fresh download clears it.
+     */
+    var interruptedDownload by mutableStateOf(false)
+        private set
+
     val currentVersion: String =
         runCatching {
             appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
@@ -93,6 +105,11 @@ class AppUpdateController(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var downloadJob: Job? = null
+
+    private companion object {
+        const val PREFS_NAME = "cinesort_update_check"
+        const val KEY_LAST_CHECK_AT = "last_check_at"
+    }
 
     /** The controller's scope must not outlive the UI that owns it. */
     fun dispose() {
@@ -103,7 +120,8 @@ class AppUpdateController(context: Context) {
         // Sweep stale update APKs (older than a day) and leftover `.part`
         // files on controller creation; a freshly downloaded APK cannot be
         // deleted at install time because the installer reads it via
-        // FileProvider.
+        // FileProvider. A `.part` means a download died mid-flight: note
+        // it before deleting (audit B.11).
         scope.launch(Dispatchers.IO) {
             runCatching {
                 val dir = File(appContext.cacheDir, "shared")
@@ -114,14 +132,28 @@ class AppUpdateController(context: Context) {
                     ) {
                         f.delete()
                     }
-                    if (f.name.endsWith(".part")) f.delete()
+                    if (f.name.endsWith(".part")) {
+                        interruptedDownload = true
+                        f.delete()
+                    }
                 }
             }
         }
     }
 
-    fun check() {
+    /**
+     * Starts a check unless one is already running. Automatic checks
+     * (the on-launch call) are throttled to one per day (section-3
+     * audit): the stamp of the last performed check is persisted, and an
+     * automatic call inside the interval is a no-op. Manual checks
+     * (Settings, the dialog's Retry) pass [manual] = true and always
+     * run. Every performed check re-stamps the time.
+     */
+    fun check(manual: Boolean = false) {
         if (state is State.Checking || state is State.Downloading) return
+        val now = System.currentTimeMillis()
+        if (!manual && !AppUpdateChecker.isAutoCheckDue(lastCheckAtMillis(), now)) return
+        stampCheckAt(now)
         state = State.Checking
         scope.launch {
             state = try {
@@ -145,6 +177,20 @@ class AppUpdateController(context: Context) {
         }
     }
 
+    // The last performed check's wall-clock stamp, for the daily
+    // automatic-check throttle. Kept in plain preferences on purpose:
+    // it is updater bookkeeping, not a user setting.
+    private fun lastCheckAtMillis(): Long =
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_CHECK_AT, 0L)
+
+    private fun stampCheckAt(nowMillis: Long) {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_CHECK_AT, nowMillis)
+            .apply()
+    }
+
     /**
      * The only text a failure ever shows (review M-E): a localized message
      * picked by failure kind — never a raw exception message.
@@ -163,6 +209,7 @@ class AppUpdateController(context: Context) {
 
     fun download(info: AppUpdateInfo) {
         if (state is State.Downloading) return
+        interruptedDownload = false
         val dest = File(
             File(appContext.cacheDir, "shared"),
             "cinesort-update-${info.version}.apk",
@@ -244,6 +291,71 @@ fun AppUpdateDialog(
     onDismiss: () -> Unit,
 ) {
     val state = controller.state
+    var hashExpanded by remember { mutableStateOf(false) }
+
+    // Failure renders in the same dialog the download started from
+    // (audit 1-14): previously the state went to Failed, the dialog's info
+    // became null, and the popup vanished with no message at all. The
+    // message is already localized by the controller.
+    if (state is AppUpdateController.State.Failed) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(30.dp),
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.update_failed_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = state.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text(stringResource(R.string.common_close))
+                        }
+                        Button(onClick = { controller.check(manual = true) }) {
+                            Text(stringResource(R.string.update_retry))
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val info = when (state) {
         is AppUpdateController.State.Available -> state.info
         is AppUpdateController.State.Downloading -> state.info
@@ -359,13 +471,61 @@ fun AppUpdateDialog(
                     }
                 }
                 info.expectedSha256?.let { sha ->
-                    Text(
-                        text = "SHA-256: $sha",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
+                    // The hash exists for out-of-band comparison (audit
+                    // 1-14): theme typography instead of a hard-coded
+                    // 11sp, a localized label instead of the "SHA-256: "
+                    // literal, truncated by default with an expand toggle,
+                    // selectable, and copyable.
+                    val clipboard = LocalClipboardManager.current
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                    )
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.update_hash_label),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            SelectionContainer(
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = if (hashExpanded) {
+                                        sha
+                                    } else {
+                                        sha.take(16) + "…" + sha.takeLast(16)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(sha))
+                                },
+                            ) {
+                                Text(stringResource(R.string.update_hash_copy))
+                            }
+                        }
+                        TextButton(
+                            onClick = { hashExpanded = !hashExpanded },
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (hashExpanded) {
+                                        R.string.update_hash_hide
+                                    } else {
+                                        R.string.update_hash_show
+                                    },
+                                ),
+                            )
+                        }
+                    }
                 }
                 if (state is AppUpdateController.State.Downloading) {
                     val total = if (state.total > 0) state.total else info.sizeBytes

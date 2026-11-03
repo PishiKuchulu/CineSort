@@ -70,6 +70,17 @@ object ScanRules {
         return tokens.any { it == "sample" }
     }
 
+    /**
+     * Effective scan depth for one source (audit A.2-1): the per-source
+     * depth capped by the global Settings depth. Both controls are real —
+     * the Settings stepper is the ceiling every scan obeys, and the
+     * per-source value can only narrow it. Before this, the session used
+     * `sourceDepth ?: settingsDepth` and every stored source carries a
+     * depth, so the Settings stepper never reached a single scan.
+     */
+    fun effectiveDepth(sourceDepth: Int?, settingsDepth: Int): Int =
+        minOf(sourceDepth ?: settingsDepth, settingsDepth).coerceIn(1, 10)
+
     fun extensionOf(name: String): String = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
 
     /**

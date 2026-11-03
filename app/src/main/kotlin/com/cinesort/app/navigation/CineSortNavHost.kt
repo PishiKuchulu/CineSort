@@ -1,5 +1,9 @@
 package com.cinesort.app.navigation
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
@@ -12,16 +16,14 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -62,15 +64,13 @@ fun CineSortNavHost(
     persianDigits: Boolean,
     settingsRepository: SettingsRepository,
 ) {
-    val context = LocalContext.current
     // One update controller for the whole app: the launch popup and the
-    // Settings → About row share its state (Anvex pattern).
-    val updateController = remember {
-        AppUpdateController(context.applicationContext)
-    }
-    DisposableEffect(updateController) {
-        onDispose { updateController.dispose() }
-    }
+    // Settings → About row share its state (Anvex pattern). Owned by an
+    // activity-scoped ViewModel (audit B.11) — remember{} + DisposableEffect
+    // here used to dispose it on activity recreation, killing a download.
+    val updateViewModel: com.cinesort.app.feature.update.AppUpdateViewModel =
+        androidx.hilt.navigation.compose.hiltViewModel()
+    val updateController = updateViewModel.controller
     var updateDialogDismissed by remember { mutableStateOf(false) }
     LaunchedEffect(updateController.state) {
         // A fresh find re-opens the popup even after an earlier dismissal.
@@ -81,7 +81,7 @@ fun CineSortNavHost(
     // The on-launch check is opt-out (review M-E): wait for the persisted
     // settings (null until loaded) so a disabled preference can never race
     // a check in before it is read. Manual checks in Settings are unaffected.
-    val settings by settingsRepository.settings.collectAsState(initial = null)
+    val settings by settingsRepository.settings.collectAsStateWithLifecycle(initial = null)
     val autoCheckUpdates = settings?.autoCheckUpdates
     LaunchedEffect(autoCheckUpdates) {
         if (autoCheckUpdates == true) {
@@ -93,7 +93,11 @@ fun CineSortNavHost(
         (
             updateState is AppUpdateController.State.Available ||
                 updateState is AppUpdateController.State.Downloading ||
-                updateState is AppUpdateController.State.Downloaded
+                updateState is AppUpdateController.State.Downloaded ||
+                // Failed included (audit 1-14): a failed download used to
+                // close the dialog silently — the user who started the
+                // download from the launch popup never saw any error.
+                updateState is AppUpdateController.State.Failed
             )
     if (showUpdateDialog) {
         AppUpdateDialog(
@@ -139,6 +143,22 @@ fun CineSortNavHost(
             navController = navController,
             startDestination = if (startOnOnboarding) Routes.ONBOARDING else Routes.HOME,
             modifier = Modifier.padding(innerPadding),
+            // A subtle fade/slide instead of the abrupt default cut
+            // (audit 1-3: the app had no custom transitions anywhere).
+            enterTransition = {
+                fadeIn(animationSpec = tween(220)) +
+                    slideInHorizontally(
+                        animationSpec = tween(220),
+                    ) { width -> width / 12 }
+            },
+            exitTransition = { fadeOut(animationSpec = tween(180)) },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(220)) +
+                    slideInHorizontally(
+                        animationSpec = tween(220),
+                    ) { width -> -width / 12 }
+            },
+            popExitTransition = { fadeOut(animationSpec = tween(180)) },
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -162,6 +182,7 @@ fun CineSortNavHost(
             composable(Routes.HISTORY) {
                 HistoryScreen(
                     onOpenRun = { runId -> navController.navigate(Routes.report(runId)) },
+                    onStartScan = { navController.navigate(Routes.SCAN) },
                 )
             }
             composable(Routes.SETTINGS) {

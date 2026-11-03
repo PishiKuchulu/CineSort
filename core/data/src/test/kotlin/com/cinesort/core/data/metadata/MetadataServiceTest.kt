@@ -46,6 +46,20 @@ class MetadataServiceTest {
             rows.remove(cacheKey)
         }
         override suspend fun clearAll() = rows.clear()
+
+        // Section-3 cache upkeep, mirroring the DAO queries' semantics.
+        override suspend fun deleteExpiredNegatives(cutoff: Long) {
+            rows.values.removeIf { it.negative && it.fetchedAt < cutoff }
+        }
+        override suspend fun deleteOlderThan(cutoff: Long) {
+            rows.values.removeIf { it.fetchedAt < cutoff }
+        }
+        override suspend fun count(): Int = rows.size
+        override suspend fun deleteOldest(count: Int) {
+            rows.values.sortedBy { it.fetchedAt }
+                .take(count)
+                .forEach { rows.remove(it.cacheKey) }
+        }
     }
 
     private lateinit var server: MockWebServer
@@ -320,5 +334,100 @@ class MetadataServiceTest {
         val request = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)!!
         assertTrue(request.path!!.contains("api_key=SECRETKEY"), "TMDB key travels as its own query param")
         assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `candidate search falls back to omdb when tmdb finds nothing`() = runTest {
+        // Audit A.3-9: provider choice for EditSheet search used to be
+        // key-presence only — with a TMDB key set, an item missing from
+        // TMDB produced an empty candidate list even with an OMDb key too.
+        server.enqueue(json(tmdbEmpty)) // TMDB search: no results
+        server.enqueue(
+            json(
+                """{"Search":[{"Title":"Obscure Film","Year":"1999",""" +
+                    """"imdbID":"tt1234567","Type":"movie","Poster":"N/A"}],""" +
+                    """"totalResults":"1","Response":"True"}""",
+            ),
+        )
+        val candidates = service.searchCandidates(
+            ItemType.MOVIE, "Obscure Film", 1999, ApiKeys(tmdbKey = "t", omdbKey = "o"),
+        )
+        assertEquals(1, candidates.size)
+        assertEquals("Obscure Film", candidates.single().title)
+        assertEquals("OMDb", candidates.single().provider)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `candidate search labels tmdb results and does not call omdb on hits`() = runTest {
+        server.enqueue(json(tmdbHit))
+        val candidates = service.searchCandidates(
+            ItemType.MOVIE, "Inception", 2010, ApiKeys(tmdbKey = "t", omdbKey = "o"),
+        )
+        assertEquals(1, candidates.size)
+        assertEquals("TMDB", candidates.single().provider)
+        assertEquals(1, server.requestCount)
+    }
+
+    // ------------------------------------------------------------ cache upkeep
+
+    @Test
+    fun `scan batch prunes expired cache rows and keeps fresh ones`() = runTest {
+        // Section-3 audit: expired rows used to stay in the table forever.
+        var now = 1_700_000_000_000L
+        val timed = MetadataService(
+            cacheDao = dao,
+            settingsRepository = null,
+            tmdbBaseUrl = server.url("/3/").toString(),
+            omdbBaseUrl = server.url("/").toString(),
+            nowMillis = { now },
+        )
+        val day = 24L * 60 * 60 * 1000
+        fun row(key: String, ageMs: Long, negative: Boolean) {
+            dao.rows[key] = MetadataCacheEntity(
+                cacheKey = key,
+                provider = "TMDB",
+                payloadJson = "",
+                fetchedAt = now - ageMs,
+                negative = negative,
+            )
+        }
+        row("neg-expired", 8 * day, negative = true)
+        row("neg-fresh", 1 * day, negative = true)
+        row("hit-expired", 31 * day, negative = false)
+        row("hit-fresh", 29 * day, negative = false)
+
+        timed.lookupAll(emptyList(), ApiKeys())
+
+        assertEquals(setOf("neg-fresh", "hit-fresh"), dao.rows.keys)
+    }
+
+    @Test
+    fun `scan batch caps the cache at the row limit oldest first`() = runTest {
+        var now = 1_700_000_000_000L
+        val timed = MetadataService(
+            cacheDao = dao,
+            settingsRepository = null,
+            tmdbBaseUrl = server.url("/3/").toString(),
+            omdbBaseUrl = server.url("/").toString(),
+            nowMillis = { now },
+        )
+        // 2005 fresh rows (the cap is 2000): all inside every TTL, so
+        // only the oldest-first cap eviction can remove any of them.
+        for (i in 0 until 2005) {
+            dao.rows["k$i"] = MetadataCacheEntity(
+                cacheKey = "k$i",
+                provider = "TMDB",
+                payloadJson = "",
+                fetchedAt = now - (2005 - i) * 60_000L,
+                negative = false,
+            )
+        }
+
+        timed.lookupAll(emptyList(), ApiKeys())
+
+        assertEquals(2000, dao.rows.size)
+        assertTrue("k0" !in dao.rows.keys && "k4" !in dao.rows.keys)
+        assertTrue("k5" in dao.rows.keys && "k2004" in dao.rows.keys)
     }
 }

@@ -50,6 +50,7 @@ class HomeViewModel @Inject constructor(
     private val secretStore: SecretStore,
     private val journalStore: JournalStore,
     private val storageGateway: StorageGateway,
+    private val undoCoordinator: com.cinesort.app.orchestration.UndoCoordinator,
 ) : ViewModel() {
 
     private val anySourceInvalid = MutableStateFlow(false)
@@ -118,7 +119,8 @@ class HomeViewModel @Inject constructor(
         refreshLastRun()
     }
 
-    private fun refreshLastRun() {
+    /** Reloads the last-run card: Home re-entry must not show stale undo (audit B.2). */
+    fun refreshLastRun() {
         viewModelScope.launch {
             val recent = journalStore.recentRuns(1)
             val run = recent.firstOrNull()
@@ -126,21 +128,35 @@ class HomeViewModel @Inject constructor(
             lastRunDoneCount.value = if (run == null) {
                 0
             } else {
-                journalStore.operationsOf(run.id)
-                    .count { it.state == com.cinesort.core.domain.journal.OperationState.DONE }
+                // Posters are not moved items (audit A.3-10/B.9); the
+                // counting-size summary carries the same done tally
+                // without materializing the run's operations
+                // (section-3 audit).
+                com.cinesort.core.domain.journal.countFromItemBestStates(
+                    journalStore.operationSummary(run.id),
+                    runFinished = false,
+                ).done
             }
         }
     }
 
+    // The chips are labelled generically ("Genres"/"Ratings") but used to
+    // write only the movie flags (audit B.2): with series flags defaulting
+    // on, tapping a chip off appeared to do nothing. The chips now drive
+    // BOTH pairs; Settings still offers the per-kind split.
     fun onGenresChipChanged(enabled: Boolean) {
         viewModelScope.launch {
-            settingsRepository.update { it.copy(movieAddGenres = enabled) }
+            settingsRepository.update {
+                it.copy(movieAddGenres = enabled, seriesAddGenres = enabled)
+            }
         }
     }
 
     fun onRatingChipChanged(enabled: Boolean) {
         viewModelScope.launch {
-            settingsRepository.update { it.copy(movieAddRating = enabled) }
+            settingsRepository.update {
+                it.copy(movieAddRating = enabled, seriesAddRating = enabled)
+            }
         }
     }
 
@@ -148,17 +164,26 @@ class HomeViewModel @Inject constructor(
     fun onUndoLastRun() {
         val state = uiState.value
         val run = state.lastRun ?: return
-        val destination = state.destination ?: return
         if (state.isUndoing) return
         viewModelScope.launch {
             isUndoing.value = true
             try {
-                val executor = UndoExecutor(
-                    gateway = storageGateway,
-                    journal = journalStore,
-                    destinationRoot = dirRefOf(destination.uriString, destination.name),
-                )
-                val report = executor.undo(run.id)
+                // The run's own destination when recorded (audit B.8),
+                // under the process-wide undo lock; older runs fall back
+                // to the current destination.
+                val destinationRoot = if (run.destinationId.isNotBlank()) {
+                    dirRefOf(run.destinationId, run.destinationName)
+                } else {
+                    val destination = state.destination ?: return@launch
+                    dirRefOf(destination.uriString, destination.name)
+                }
+                val report = undoCoordinator.withUndoLock {
+                    UndoExecutor(
+                        gateway = storageGateway,
+                        journal = journalStore,
+                        destinationRoot = destinationRoot,
+                    ).undo(run.id)
+                }
                 undoResult.value = UndoResultUi(
                     movedBack = report.movedBack,
                     problems = report.problems,

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.StateFlow
 import timber.log.Timber
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -33,10 +34,22 @@ class SettingsRepository(context: Context) : SettingsAccess {
 
     private val dataStore: DataStore<Preferences> = context.applicationContext.settingsDataStore
 
+    // Recovery signal (section-4 audit): a corrupt DataStore used to fall
+    // back to defaults with only a log line — the user could not tell a
+    // reset apart from their own choices. The catch below now also sets
+    // the persisted flag Settings surfaces as a one-time notice.
+    private val storageHealthStore = StorageHealthStore(context)
+
+    /** One-time "storage was recovered" notice state for the Settings UI. */
+    val storageHealth: StateFlow<StorageHealth> = storageHealthStore.state
+
+    fun dismissStorageHealthNotice() = storageHealthStore.dismiss()
+
     val settings: Flow<AppSettings> = dataStore.data
         .catch { error ->
             if (error is IOException) {
                 Timber.w(error, "settings read failed, using defaults")
+                storageHealthStore.markSettingsReset()
                 emit(emptyPreferences())
             } else {
                 throw error
@@ -47,6 +60,11 @@ class SettingsRepository(context: Context) : SettingsAccess {
     override suspend fun current(): AppSettings = settings.first()
 
     override suspend fun update(block: (AppSettings) -> AppSettings) {
+        // The block reads INSIDE DataStore's serialized edit transaction,
+        // so concurrent update{} calls apply one at a time, each on the
+        // previous one's result — no lost writes; per field, the
+        // last-applied edit wins. That is the whole ordering story
+        // (audit B.10: documented, no extra lock added).
         dataStore.edit { prefs ->
             prefs.writeAppSettings(block(prefs.toAppSettings()))
         }

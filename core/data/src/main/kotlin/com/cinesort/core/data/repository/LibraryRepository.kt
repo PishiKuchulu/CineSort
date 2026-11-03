@@ -14,6 +14,13 @@ import com.cinesort.core.domain.planner.TitleOverride
 import kotlinx.coroutines.flow.Flow
 import timber.log.Timber
 
+/** Outcome of [LibraryRepository.addSource] (audit B.3). */
+data class AddSourceResult(
+    val id: Long,
+    /** True when the folder was already a source and only its options changed. */
+    val alreadyExisted: Boolean,
+)
+
 /** Source folders, destination, and title overrides (spec sections 5.1, 6.6, 12). */
 class LibraryRepository(
     private val sourceFolderDao: SourceFolderDao,
@@ -36,22 +43,27 @@ class LibraryRepository(
         name: String,
         includeSubfolders: Boolean,
         maxDepth: Int,
-    ): Long {
+    ): AddSourceResult {
         // One row per tree (review L7): re-adding the same folder updates its
         // options instead of inserting a duplicate (the unique index would
-        // reject it anyway).
+        // reject it anyway). The result tells the caller which happened —
+        // before this the merge was silent and the user could believe a
+        // second source had been added (audit B.3).
         val existing = sourceFolderDao.getAll().firstOrNull { it.uriString == uriString }
         if (existing != null) {
             sourceFolderDao.updateOptions(existing.id, includeSubfolders, maxDepth.coerceIn(1, 10))
-            return existing.id
+            return AddSourceResult(existing.id, alreadyExisted = true)
         }
-        return sourceFolderDao.insert(
-            SourceFolderEntity(
-                uriString = uriString,
-                name = name,
-                includeSubfolders = includeSubfolders,
-                maxDepth = maxDepth.coerceIn(1, 10),
+        return AddSourceResult(
+            id = sourceFolderDao.insert(
+                SourceFolderEntity(
+                    uriString = uriString,
+                    name = name,
+                    includeSubfolders = includeSubfolders,
+                    maxDepth = maxDepth.coerceIn(1, 10),
+                ),
             ),
+            alreadyExisted = false,
         )
     }
 
@@ -107,6 +119,11 @@ class LibraryRepository(
 
     suspend fun deleteOverride(id: Long) {
         titleOverrideDao.deleteById(id)
+    }
+
+    /** Edits a saved correction in place (audit A.1-5). */
+    suspend fun updateOverride(id: Long, correctedTitle: String, correctedYear: Int?) {
+        titleOverrideDao.updateById(id, correctedTitle, correctedYear)
     }
 
     suspend fun saveOverride(override: TitleOverride) {

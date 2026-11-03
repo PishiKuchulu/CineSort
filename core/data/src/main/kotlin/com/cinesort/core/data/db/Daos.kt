@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -60,6 +61,28 @@ interface MetadataCacheDao {
 
     @Query("DELETE FROM metadata_cache")
     suspend fun clearAll()
+
+    // Cache upkeep (section-3 audit): expired rows used to live forever —
+    // reads treated them as misses but nothing ever deleted them, and the
+    // table grew by one row per unique title forever.
+
+    /** Negative results past their 7-day TTL. */
+    @Query("DELETE FROM metadata_cache WHERE negative = 1 AND fetchedAt < :cutoff")
+    suspend fun deleteExpiredNegatives(cutoff: Long)
+
+    /** Any row past the 30-day success TTL is expired under every TTL. */
+    @Query("DELETE FROM metadata_cache WHERE fetchedAt < :cutoff")
+    suspend fun deleteOlderThan(cutoff: Long)
+
+    @Query("SELECT COUNT(*) FROM metadata_cache")
+    suspend fun count(): Int
+
+    /** Oldest-first eviction for the row cap. */
+    @Query(
+        "DELETE FROM metadata_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM metadata_cache ORDER BY fetchedAt ASC LIMIT :count)",
+    )
+    suspend fun deleteOldest(count: Int)
 }
 
 @Dao
@@ -75,6 +98,12 @@ interface TitleOverrideDao {
 
     @Query("DELETE FROM title_overrides WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query(
+        "UPDATE title_overrides SET correctedTitle = :correctedTitle, " +
+            "correctedYear = :correctedYear WHERE id = :id",
+    )
+    suspend fun updateById(id: Long, correctedTitle: String, correctedYear: Int?)
 
     @Query("DELETE FROM title_overrides WHERE normalizedKey = :normalizedKey AND type = :type")
     suspend fun delete(normalizedKey: String, type: String)
@@ -93,6 +122,25 @@ interface RunDao {
 
     @Query("SELECT * FROM operations WHERE runId = :runId")
     suspend fun operationsOf(runId: String): List<OperationEntity>
+
+    /**
+     * Distinct (item, state) pairs of a run's MAIN operations (section-3
+     * audit): the counting summary the Run screen polls, instead of a
+     * full entity list per tick. At most one row per state an item has
+     * actually been in, and only two narrow columns.
+     */
+    @Query(
+        "SELECT DISTINCT itemId, state FROM operations WHERE runId = :runId " +
+            "AND isCompanion = 0 AND isPoster = 0",
+    )
+    suspend fun itemStates(runId: String): List<ItemStateRow>
+
+    /** DONE poster operations of a run (tallied apart from items). */
+    @Query(
+        "SELECT COUNT(*) FROM operations WHERE runId = :runId " +
+            "AND isPoster = 1 AND state = 'DONE'",
+    )
+    suspend fun countDonePosters(runId: String): Int
 
     @Query("SELECT * FROM runs WHERE id = :id")
     suspend fun run(id: String): RunEntity?
@@ -113,6 +161,12 @@ interface RunDao {
     suspend fun unfinishedRuns(): List<RunEntity>
 }
 
+/** Projection of [RunDao.itemStates]: one distinct state of one item. */
+data class ItemStateRow(
+    val itemId: String,
+    val state: String,
+)
+
 @Dao
 interface ExecutionDraftDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -123,6 +177,18 @@ interface ExecutionDraftDao {
 
     @Query("DELETE FROM execution_drafts WHERE runId = :runId")
     suspend fun clearRun(runId: String)
+
+    /**
+     * Atomic draft rewrite (section-4 audit): clear + insert used to be
+     * two separate operations, so process death between them wiped the
+     * run's drafts and with them its only resume input. Inside one
+     * transaction the run keeps either the old drafts or the new ones.
+     */
+    @Transaction
+    suspend fun replaceRun(runId: String, entities: List<ExecutionDraftEntity>) {
+        clearRun(runId)
+        if (entities.isNotEmpty()) insertAll(entities)
+    }
 
     @Query("DELETE FROM execution_drafts")
     suspend fun clearAll()

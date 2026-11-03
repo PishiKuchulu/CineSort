@@ -25,11 +25,32 @@ val MonoFontFamily = FontFamily.Monospace
  * the same scale (24/800) for the one CineSort slot Atelier leaves open.
  */
 val CineSortTypography = Typography(
+    // All 15 M3 slots are defined on Vazirmatn (granular audit 1-1): the
+    // three large display/headline slots below are unused today, but an
+    // undefined slot silently falls back to the platform font.
+    displayLarge = TextStyle(
+        fontFamily = VazirmatnFontFamily,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 40.sp,
+        lineHeight = 48.sp,
+    ),
+    displayMedium = TextStyle(
+        fontFamily = VazirmatnFontFamily,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 34.sp,
+        lineHeight = 42.sp,
+    ),
     displaySmall = TextStyle(
         fontFamily = VazirmatnFontFamily,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 26.sp,
         lineHeight = 34.sp,
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = VazirmatnFontFamily,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = VazirmatnFontFamily,

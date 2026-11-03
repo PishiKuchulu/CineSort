@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -17,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /** Formats a byte count for display; [persianDigits] converts ASCII digits when requested. */
@@ -53,16 +55,22 @@ fun FreeSpaceBar(
     persianDigits: Boolean = false,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        val fraction = if (freeBytes != null && totalBytes != null && totalBytes > 0) {
-            (freeBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
+        // The bar renders only when the total is known (granular audit 1-2):
+        // an always-empty bar falsely reads as "no free space" — and the
+        // gateway exposes no total, so on Sources the bar is hidden and only
+        // the text (with "—" for an unknown free value) remains.
+        if (totalBytes != null && totalBytes > 0) {
+            val fraction = if (freeBytes != null) {
+                (freeBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
         }
-        LinearProgressIndicator(
-            progress = { fraction },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(6.dp))
         Text(
             text = freeLabel + ": " + formatBytes(freeBytes, persianDigits),
             style = MaterialTheme.typography.bodySmall,
@@ -96,7 +104,11 @@ fun DestinationCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
                 if (statusLabel != null) {
                     StatusChip(label = statusLabel, isOk = isStatusOk)
                 }
@@ -129,6 +141,12 @@ fun SourceCard(
     isStatusOk: Boolean,
     onIncludeSubfoldersChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    depthValue: Int? = null,
+    depthMin: Int = 1,
+    depthMax: Int = 10,
+    onDepthChange: ((Int) -> Unit)? = null,
+    depthDecreaseLabel: String = "",
+    depthIncreaseLabel: String = "",
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Card(
@@ -153,20 +171,44 @@ fun SourceCard(
             Spacer(Modifier.height(6.dp))
             LtrText(text = path, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(10.dp))
+            // The whole row toggles (granular audit 1-2 pattern, same as the
+            // shared SwitchRow); the switch itself is a passive indicator.
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = includeSubfolders,
+                        role = Role.Switch,
+                        onValueChange = onIncludeSubfoldersChange,
+                    ),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text(text = includeSubfoldersLabel, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        text = depthLabel,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (onDepthChange == null) {
+                        Text(
+                            text = depthLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Switch(checked = includeSubfolders, onCheckedChange = onIncludeSubfoldersChange)
+                Switch(checked = includeSubfolders, onCheckedChange = null)
+            }
+            // The scan depth is editable right on the card (granular audit
+            // 1-6) instead of being a display-only value whose editor lives
+            // on another screen. [depthLabel] becomes the stepper's label.
+            if (onDepthChange != null && depthValue != null) {
+                StepperRow(
+                    label = depthLabel,
+                    value = depthValue,
+                    min = depthMin,
+                    max = depthMax,
+                    onValueChange = onDepthChange,
+                    decreaseLabel = depthDecreaseLabel,
+                    increaseLabel = depthIncreaseLabel,
+                )
             }
         }
     }

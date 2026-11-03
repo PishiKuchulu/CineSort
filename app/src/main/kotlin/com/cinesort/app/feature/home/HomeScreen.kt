@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -32,12 +35,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cinesort.app.R
@@ -137,7 +141,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val persianDigits = state.settings.persianDigits
 
@@ -154,6 +158,10 @@ fun HomeScreen(
             viewModel.consumeUndoResult()
         }
     }
+
+    // Last-run state is refreshed on entry (audit B.2): an undo done from
+    // the Report must not still be offered here on return.
+    LaunchedEffect(Unit) { viewModel.refreshLastRun() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.home_title)) }) },
@@ -194,6 +202,30 @@ fun HomeScreen(
                             Text(
                                 text = stringResource(R.string.home_scan_button),
                                 style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        if (!state.canScan) {
+                            // Why the main action is greyed out, right next
+                            // to the button itself (audit 1-5) — not only
+                            // in the checklist further down.
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                text = stringResource(R.string.home_scan_needs_setup),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (state.canScan && state.anySourceInvalid) {
+                            // The button stays enabled with a dead source
+                            // (audit B.2): the warning belongs here too,
+                            // not only in the checklist below.
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                text = stringResource(
+                                    R.string.home_warning_source_needs_access,
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
                             )
                         }
                     }
@@ -307,6 +339,11 @@ fun HomeScreen(
                     label = { Text(stringResource(R.string.home_rating)) },
                 )
             }
+            Text(
+                text = stringResource(R.string.home_naming_synced_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             // Last run card
             Text(
@@ -359,6 +396,12 @@ fun HomeScreen(
                                 onClick = { viewModel.onUndoLastRun() },
                                 enabled = !state.isUndoing && state.destination != null,
                             ) {
+                                if (state.isUndoing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
                                 Text(stringResource(R.string.home_undo))
                             }
                         }
@@ -382,6 +425,10 @@ private fun SetupStepRow(step: SetupStep) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = step.onClick)
+            // One merged accessibility node per step and a comfortable
+            // 52dp minimum touch height (audit 1-5).
+            .semantics(mergeDescendants = true) {}
+            .heightIn(min = 52.dp)
             .padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

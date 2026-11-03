@@ -8,6 +8,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
+import com.cinesort.core.domain.gateway.ContentHash
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.EntryInfo
@@ -397,6 +398,9 @@ class SafStorageGateway(context: Context) : StorageGateway {
                 ?: throw IOException("cannot open source: ${file.name}")
             val output = resolver.openOutputStream(partialUri, "wt")
                 ?: throw IOException("cannot open destination partial: $partialName")
+            // The source is hashed as it streams through (section-4
+            // audit): no second read of the source is needed.
+            val sourceDigest = ContentHash.newDigest()
             input.use { streamIn ->
                 output.use { streamOut ->
                     val buffer = ByteArray(BUFFER_SIZE)
@@ -405,6 +409,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
                         val read = streamIn.read(buffer)
                         if (read < 0) break
                         streamOut.write(buffer, 0, read)
+                        sourceDigest.update(buffer, 0, read)
                         copied += read
                         onProgress(copied)
                     }
@@ -417,6 +422,18 @@ class SafStorageGateway(context: Context) : StorageGateway {
             }
             if (copied != file.size) {
                 throw IOException("size mismatch for ${file.name}: copied $copied of ${file.size}")
+            }
+            // Content verification (section-4 audit): size alone cannot
+            // detect silent corruption (faulty SD card, misbehaving
+            // provider), and the caller deletes the source as soon as
+            // this returns. Re-read the partial and compare SHA-256
+            // hashes; a mismatch throws, and the catch below deletes the
+            // partial — the source survives. The cost is one extra read
+            // of the destination, paid only on copy paths (never on
+            // same-volume renames).
+            val copiedHash = sha256OfDocument(partialUri)
+            if (!copiedHash.contentEquals(sourceDigest.digest())) {
+                throw IOException("content hash mismatch for ${file.name}: copied bytes are corrupt")
             }
             // A failed rename must fail the copy (review M13): returning the partial
             // URI here would hand back a ref named as the target while the document
@@ -431,6 +448,23 @@ class SafStorageGateway(context: Context) : StorageGateway {
             runCatching { DocumentsContract.deleteDocument(resolver, partialUri) }
             throw e
         }
+    }
+
+    /** Streams a document through SHA-256 (content verification, section-4 audit). */
+    private suspend fun sha256OfDocument(documentUri: Uri): ByteArray {
+        val digest = ContentHash.newDigest()
+        val input = resolver.openInputStream(documentUri)
+            ?: throw IOException("cannot re-open copied file for verification")
+        input.use { stream ->
+            val buffer = ByteArray(BUFFER_SIZE)
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val read = stream.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest()
     }
 
     private fun mimeTypeFor(name: String): String {

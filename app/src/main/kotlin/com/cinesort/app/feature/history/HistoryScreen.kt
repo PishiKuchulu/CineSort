@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,10 +26,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -37,7 +41,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.cinesort.app.R
 import com.cinesort.app.feature.home.formatRunDate
 import com.cinesort.core.designsystem.component.EmptyState
+import com.cinesort.core.designsystem.component.LoadingState
 import com.cinesort.core.designsystem.component.StatusChip
+import com.cinesort.core.designsystem.component.StatusTone
 import com.cinesort.core.designsystem.component.toPersianDigits
 
 /**
@@ -49,9 +55,10 @@ import com.cinesort.core.designsystem.component.toPersianDigits
 @Composable
 fun HistoryScreen(
     onOpenRun: (String) -> Unit = {},
+    onStartScan: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val persianDigits = state.settings.persianDigits
 
@@ -76,7 +83,16 @@ fun HistoryScreen(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.history_title)) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        if (state.runs.isEmpty()) {
+        if (state.isLoading && state.runs.isEmpty()) {
+            // Loading branch (audit 1-13): the empty state used to flash
+            // before the first refresh returned.
+            LoadingState(
+                message = stringResource(R.string.history_loading),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+        } else if (state.runs.isEmpty()) {
             EmptyState(
                 icon = Icons.Filled.History,
                 title = stringResource(R.string.history_empty_title),
@@ -84,6 +100,8 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
+                actionLabel = stringResource(R.string.history_start_scan),
+                onAction = onStartScan,
             )
         } else {
             LazyColumn(
@@ -101,7 +119,20 @@ fun HistoryScreen(
                         isUndoing = state.undoingRunId == entry.run.id,
                         onClick = { onOpenRun(entry.run.id) },
                         onUndo = { viewModel.undo(entry.run.id) },
+                        onCloseInterrupted = {
+                            viewModel.closeAsInterrupted(entry.run.id)
+                        },
                     )
+                }
+                if (state.hasMore) {
+                    item {
+                        OutlinedButton(
+                            onClick = viewModel::loadMore,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.history_show_more))
+                        }
+                    }
                 }
             }
         }
@@ -116,6 +147,7 @@ private fun HistoryRunCard(
     isUndoing: Boolean,
     onClick: () -> Unit,
     onUndo: () -> Unit,
+    onCloseInterrupted: () -> Unit,
 ) {
     val run = entry.run
     val statusRes = when {
@@ -123,12 +155,22 @@ private fun HistoryRunCard(
         run.finishedAt == null -> R.string.history_status_running
         else -> R.string.history_status_finished
     }
+    // Tone, not a boolean (audit 1-13): a run still in progress is not an
+    // error, and an undone run is a warning-state, not a success.
+    val statusTone = when {
+        run.undone -> StatusTone.Warning
+        run.finishedAt == null -> StatusTone.Neutral
+        else -> StatusTone.Ok
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .clickable(
+                onClickLabel = stringResource(R.string.history_open_report),
+                onClick = onClick,
+            ),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -142,7 +184,7 @@ private fun HistoryRunCard(
                 )
                 StatusChip(
                     label = stringResource(statusRes),
-                    isOk = run.finishedAt != null && !run.undone,
+                    tone = statusTone,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -164,6 +206,32 @@ private fun HistoryRunCard(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            // Skipped/undone outcomes the counts above hide (audit
+            // A.3-1/A.3-3), shown only when they happened.
+            if (entry.skipped > 0) {
+                Text(
+                    text = stringResource(R.string.history_skipped, entry.skipped)
+                        .let { if (persianDigits) it.toPersianDigits() else it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (entry.undone > 0) {
+                Text(
+                    text = stringResource(R.string.history_undone, entry.undone)
+                        .let { if (persianDigits) it.toPersianDigits() else it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!entry.isFinished) {
+                // An unfinished card is no longer an action-less dead end
+                // (audit B.9): give the run its final state from here.
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onCloseInterrupted) {
+                    Text(stringResource(R.string.history_close_interrupted))
+                }
+            }
             if (entry.canUndo) {
                 Spacer(Modifier.height(10.dp))
                 Row(
@@ -174,6 +242,12 @@ private fun HistoryRunCard(
                         onClick = onUndo,
                         enabled = !isUndoing,
                     ) {
+                        if (isUndoing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         Text(stringResource(R.string.history_undo))
                     }
                 }
