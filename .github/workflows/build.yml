@@ -7,8 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default (review M-F): only the release job below, which runs
+# exclusively on version tags, may write repository contents.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -39,6 +41,11 @@ jobs:
           curl -fsSL -o vazirmatn_regular.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Regular.ttf
           curl -fsSL -o vazirmatn_medium.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Medium.ttf
           curl -fsSL -o vazirmatn_bold.ttf https://github.com/rastikerdar/vazirmatn/raw/v33.003/fonts/ttf/Vazirmatn-Bold.ttf
+          # Pin the payloads (review M-F): these are the SHA-256 digests of
+          # the exact TTF files the local tree bundles.
+          printf '%s  %s\n' b69fd4c680b8f3f225feabcc655a2c585d97627b8f5f5c0f9985e894069f3a56 vazirmatn_regular.ttf | sha256sum -c -
+          printf '%s  %s\n' b986623e4ddef10755e04be39f8ea7bcb1dc08bfe8dd0aa6af395736f256ad4a vazirmatn_medium.ttf | sha256sum -c -
+          printf '%s  %s\n' f635fdbea28f265de395ba83b4b1570dcf2f58d13c65469e61903b1c2d2ae723 vazirmatn_bold.ttf | sha256sum -c -
 
       - name: Generate launcher icons
         run: |
@@ -76,6 +83,17 @@ jobs:
 
       - name: Build debug APK and run unit tests
         run: ./gradlew assembleDebug testDebugUnitTest lint detekt --stacktrace
+
+      - name: Compile instrumented tests
+        # Compile gate for the androidTest source set (review M-G): the Room
+        # migration test must keep compiling; it executes on device/emulator.
+        run: ./gradlew :core:data:assembleDebugAndroidTest --stacktrace
+
+      - name: Exercise release build (R8)
+        # Minification runs on every build (review M-F), not only when the
+        # signing secrets are present; the signed step below re-runs it with
+        # the keystore environment when available.
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Upload debug APK
         if: success()
@@ -120,16 +138,42 @@ jobs:
           name: cinesort-release-apk
           path: app/build/outputs/apk/release/*.apk
 
-      # Tag builds publish the GitHub Release the in-app updater reads:
-      # CineSort-<version>.apk plus its .sha256 sidecar.
-      - name: Publish GitHub Release (tag builds)
-        if: startsWith(github.ref, 'refs/tags/v') && steps.ks.outputs.present == 'true'
+  # Tag builds publish the GitHub Release the in-app updater reads:
+  # CineSort-<version>.apk plus its .sha256 sidecar. This is the only job
+  # allowed to write repository contents (review M-F).
+  release:
+    name: Publish GitHub Release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches versionName
+        # A tag that disagrees with the packaged version makes the in-app
+        # updater offer the same update forever (review M-E): fail loudly.
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          if [ "$VERSION_NAME" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $VERSION_NAME in app/build.gradle.kts"
+            exit 1
+          fi
+
+      - name: Download signed release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: cinesort-release-apk
+          path: release-apk
+
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          APK=$(ls release-apk/*.apk | head -1)
           cp "$APK" "CineSort-$VERSION.apk"
           sha256sum "CineSort-$VERSION.apk" > "CineSort-$VERSION.apk.sha256"
-          gh release create "$GITHUB_REF_NAME" --title "CineSort $GITHUB_REF_NAME" --notes "CineSort $GITHUB_REF_NAME" || true
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "CineSort $GITHUB_REF_NAME" --notes "CineSort $GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" "CineSort-$VERSION.apk" "CineSort-$VERSION.apk.sha256" --clobber
