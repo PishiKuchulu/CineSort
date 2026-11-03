@@ -355,6 +355,8 @@
     <string name="update_error_checksum">The downloaded file is corrupted or incomplete. Please try again.</string>
     <string name="update_error_signer">The downloaded update is not signed with this app\'s key and cannot be installed.</string>
     <string name="update_error_generic">Something went wrong while updating. Please try again.</string>
+    <string name="update_error_http">Update check failed (HTTP %1$d). Please try again later.</string>
+    <string name="update_last_checked">Last checked: %1$s</string>
 
     <!-- Granular audit section 1 (UI/UX) fixes -->
     <string name="common_decrease">Decrease</string>

@@ -968,6 +968,28 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // The daily auto-check throttle is visible, never
+                    // silent (v1.0.7): when the last completed check ran.
+                    val lastCheckedAt = updateController.lastCheckAtMillis()
+                    if (lastCheckedAt > 0L) {
+                        Text(
+                            text = stringResource(
+                                R.string.update_last_checked,
+                                java.text.DateFormat.getDateTimeInstance(
+                                    java.text.DateFormat.SHORT,
+                                    java.text.DateFormat.SHORT,
+                                ).format(java.util.Date(lastCheckedAt)),
+                            ).let {
+                                if (settings.persianDigits) {
+                                    it.toPersianDigits()
+                                } else {
+                                    it
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     // An interrupted earlier download now says so instead
                     // of vanishing silently (audit B.11).
                     if (updateController.interruptedDownload &&

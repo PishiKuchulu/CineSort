@@ -145,20 +145,27 @@ class AppUpdateController(context: Context) {
     /**
      * Starts a check unless one is already running. Automatic checks
      * (the on-launch call) are throttled to one per day (section-3
-     * audit): the stamp of the last performed check is persisted, and an
+     * audit): the stamp of the last COMPLETED check is persisted, and an
      * automatic call inside the interval is a no-op. Manual checks
      * (Settings, the dialog's Retry) pass [manual] = true and always
-     * run. Every performed check re-stamps the time.
+     * run. A failed or interrupted check never stamps, so the next
+     * launch retries instead of staying silent for a day (v1.0.7).
      */
     fun check(manual: Boolean = false) {
         if (state is State.Checking || state is State.Downloading) return
         val now = System.currentTimeMillis()
         if (!manual && !AppUpdateChecker.isAutoCheckDue(lastCheckAtMillis(), now)) return
-        stampCheckAt(now)
         state = State.Checking
         scope.launch {
             state = try {
-                AppUpdateChecker.fetchLatestNewerThan(currentVersion)
+                val found = AppUpdateChecker.fetchLatestNewerThan(currentVersion)
+                // Only a COMPLETED check earns the daily stamp (v1.0.7):
+                // stamping before the fetch meant a failed or killed
+                // check also silenced the launch popup for 24 hours, and
+                // a release published inside that window stayed invisible
+                // with no signal anywhere.
+                stampCheckAt(System.currentTimeMillis())
+                found
                     ?.let { found ->
                         // Surface the expected hash in the dialog so it can
                         // be compared out-of-band.
@@ -178,10 +185,12 @@ class AppUpdateController(context: Context) {
         }
     }
 
-    // The last performed check's wall-clock stamp, for the daily
-    // automatic-check throttle. Kept in plain preferences on purpose:
-    // it is updater bookkeeping, not a user setting.
-    private fun lastCheckAtMillis(): Long =
+    // The last COMPLETED check's wall-clock stamp, for the daily
+    // automatic-check throttle (failed checks never stamp, so the next
+    // launch retries). Kept in plain preferences on purpose: it is
+    // updater bookkeeping, not a user setting. Also read by Settings →
+    // About so the throttle is visible, never silent.
+    fun lastCheckAtMillis(): Long =
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getLong(KEY_LAST_CHECK_AT, 0L)
 
@@ -197,6 +206,13 @@ class AppUpdateController(context: Context) {
      * picked by failure kind — never a raw exception message.
      */
     private fun failureMessage(e: Exception): String {
+        // An HTTP status the user can act on (rate limit, proxy block)
+        // is part of the message, not hidden behind "generic" (v1.0.7).
+        if (e is UpdateException) {
+            AppUpdateChecker.httpCodeIn(e.message)?.let { code ->
+                return appContext.getString(R.string.update_error_http, code)
+            }
+        }
         val res = when {
             e is UpdateException && e.failure == UpdateFailure.NETWORK ->
                 R.string.update_error_network

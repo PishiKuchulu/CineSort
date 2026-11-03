@@ -69,6 +69,29 @@ class AppUpdateCheckerTest {
         assertFalse(AppUpdateChecker.isAutoCheckDue(2_000L, 1_000L))
     }
 
+    // ---------------------------------------------------------- HTTP code surfacing (v1.0.7)
+
+    @Test
+    fun httpCodeIsExtractedFromUpdateErrorMessages() {
+        assertEquals(
+            403,
+            AppUpdateChecker.httpCodeIn("Update check failed (HTTP 403)"),
+        )
+        assertEquals(
+            404,
+            AppUpdateChecker.httpCodeIn("Download failed (HTTP 404)"),
+        )
+        assertEquals(
+            429,
+            AppUpdateChecker.httpCodeIn("Update check failed (HTTP 429)"),
+        )
+        // No embedded code: nothing to surface.
+        assertEquals(null, AppUpdateChecker.httpCodeIn("Update request failed: timeout"))
+        assertEquals(null, AppUpdateChecker.httpCodeIn("HTTP 403 without parentheses"))
+        assertEquals(null, AppUpdateChecker.httpCodeIn(null))
+        assertEquals(null, AppUpdateChecker.httpCodeIn(""))
+    }
+
     // ---------------------------------------------------------- redirect host allow-list
 
     @Test

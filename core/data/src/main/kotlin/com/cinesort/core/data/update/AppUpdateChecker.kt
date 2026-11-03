@@ -92,6 +92,17 @@ object AppUpdateChecker {
         lastCheckAtMillis <= 0L || nowMillis - lastCheckAtMillis >= AUTO_CHECK_INTERVAL_MS
 
     /**
+     * The HTTP status code embedded in an update error message ("(HTTP
+     * 403)"), when one is there. The UI surfaces it in the failure text
+     * (v1.0.7): a bare "something went wrong" hides exactly the failures —
+     * rate limits, proxy blocks — that a user can act on.
+     */
+    internal fun httpCodeIn(message: String?): Int? =
+        message?.let {
+            Regex("""\(HTTP (\d{3})\)""").find(it)?.groupValues?.get(1)?.toIntOrNull()
+        }
+
+    /**
      * The only hosts a release-download redirect may land on: github.com
      * itself (no redirect) and GitHub's release-asset CDN hosts. Exact
      * matches only, so lookalike suffix domains fail.

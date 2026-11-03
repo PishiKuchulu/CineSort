@@ -355,6 +355,8 @@
     <string name="update_error_checksum">فایل دانلودشده خراب یا ناقص است. لطفاً دوباره تلاش کنید.</string>
     <string name="update_error_signer">به‌روزرسانی دانلودشده با کلید این برنامه امضا نشده است و قابل نصب نیست.</string>
     <string name="update_error_generic">هنگام به‌روزرسانی خطایی رخ داد. لطفاً دوباره تلاش کنید.</string>
+    <string name="update_error_http">بررسی به‌روزرسانی ناموفق بود (HTTP %1$d). لطفاً بعداً دوباره تلاش کنید.</string>
+    <string name="update_last_checked">آخرین بررسی: %1$s</string>
 
     <!-- Granular audit section 1 (UI/UX) fixes -->
     <string name="common_decrease">کاهش</string>
