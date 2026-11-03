@@ -163,6 +163,36 @@ class MetadataServiceTest {
     }
 
     @Test
+    fun `omdb poster url flows into the enriched info`() = runTest {
+        // Regression (v1.0.9): OmdbTitleResponse.toMetadataInfo dropped the
+        // Poster field, so OMDb-matched items never got a poster.jpg even
+        // with the download-posters setting on.
+        server.enqueue(
+            json(
+                """{"Title":"Inception","Year":"2010","Genre":"Action, Sci-Fi","imdbRating":"8.8",
+                "imdbID":"tt1375666","Type":"movie","Response":"True",
+                "Poster":"https://m.media-amazon.com/images/M/inception.jpg"}""",
+            ),
+        )
+        val info = service.enrich(ItemType.MOVIE, "Inception", 2010, ApiKeys(omdbKey = "k"))
+        assertNotNull(info)
+        assertEquals("https://m.media-amazon.com/images/M/inception.jpg", info!!.posterUrl)
+    }
+
+    @Test
+    fun `omdb poster NA stays null`() = runTest {
+        server.enqueue(
+            json(
+                """{"Title":"Inception","Year":"2010","Genre":"Action, Sci-Fi","imdbRating":"8.8",
+                "imdbID":"tt1375666","Type":"movie","Response":"True","Poster":"N/A"}""",
+            ),
+        )
+        val info = service.enrich(ItemType.MOVIE, "Inception", 2010, ApiKeys(omdbKey = "k"))
+        assertNotNull(info)
+        assertNull(info!!.posterUrl)
+    }
+
+    @Test
     fun `malformed JSON degrades to null instead of throwing`() = runTest {
         server.enqueue(json("{not json"))
         assertNull(service.enrich(ItemType.MOVIE, "Inception", 2010, ApiKeys(tmdbKey = "k")))

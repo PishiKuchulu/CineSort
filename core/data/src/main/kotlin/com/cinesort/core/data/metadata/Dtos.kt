@@ -79,6 +79,9 @@ data class OmdbTitleResponse(
     @SerialName("Genre") val genre: String? = null,
     @SerialName("imdbRating") val imdbRating: String? = null,
     @SerialName("imdbID") val imdbId: String? = null,
+    // The API returns Poster on title/id lookups too; the DTO never
+    // declared it, so OMDb posters were dropped at parse time (v1.0.9).
+    @SerialName("Poster") val poster: String? = null,
     @SerialName("Response") val response: String? = null,
     @SerialName("Error") val error: String? = null,
 ) {

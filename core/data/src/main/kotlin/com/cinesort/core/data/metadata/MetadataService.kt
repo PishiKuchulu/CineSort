@@ -534,6 +534,10 @@ class MetadataService(
             rating = ratingValue,
             ratingSource = if (ratingValue != null) RatingSource.IMDB else null,
             year = yearValue,
+            // The poster URL must flow into the final info like the TMDB
+            // path does — without this, OMDb-matched items silently never
+            // got a poster.jpg (device report on v1.0.8; fixed in 1.0.9).
+            posterUrl = poster?.takeIf { it != "N/A" },
             matchedTitle = title,
         )
     }
