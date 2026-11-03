@@ -10,6 +10,9 @@ import java.util.Locale
  */
 object TitleSimilarity {
 
+    /** Cap for strict subset matches: below exact (1.0), at the fill-year bar. */
+    const val SUBSET_SCORE_CAP = 0.9
+
     fun similarity(a: String, b: String): Double {
         val normalizedA = normalize(a)
         val normalizedB = normalize(b)
@@ -19,7 +22,33 @@ object TitleSimilarity {
         if (normalizedA == normalizedB) return 1.0
         val levenshtein = ratio(normalizedA, normalizedB)
         val tokenSet = tokenSetRatio(normalizedA, normalizedB)
-        return maxOf(levenshtein, tokenSet)
+        val score = maxOf(levenshtein, tokenSet)
+        // Strict token-subset matches in EITHER direction are strong but never
+        // exact (review M-D): cap them below 1.0 so an exact title always wins
+        // the matcher's popularity tie-break — an exact "Lucky" must beat the
+        // subset match "Lucky Hank". The deliberate subset acceptance itself
+        // stays ("Matrix" -> "The Matrix" still clears the accept threshold).
+        return if (isStrictTokenSubset(normalizedA, normalizedB) ||
+            isStrictTokenSubset(normalizedB, normalizedA)
+        ) {
+            minOf(score, SUBSET_SCORE_CAP)
+        } else {
+            score
+        }
+    }
+
+    /** True when [a]'s token multiset is a strict subset of [b]'s. */
+    private fun isStrictTokenSubset(a: String, b: String): Boolean {
+        val tokensA = a.split(' ').filter { it.isNotEmpty() }
+        val tokensB = b.split(' ').filter { it.isNotEmpty() }
+        if (tokensA.size >= tokensB.size) return false
+        val counts = tokensB.groupingBy { it }.eachCount().toMutableMap()
+        for (token in tokensA) {
+            val remaining = counts[token] ?: return false
+            if (remaining == 0) return false
+            counts[token] = remaining - 1
+        }
+        return true
     }
 
     private val combiningMarksRegex = Regex("""\p{Mn}+""")

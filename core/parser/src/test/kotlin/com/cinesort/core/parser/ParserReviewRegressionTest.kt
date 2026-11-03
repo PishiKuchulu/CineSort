@@ -40,10 +40,26 @@ class ParserReviewRegressionTest {
         assertMovie("The.Net.1995.1080p.BluRay.mkv", "The Net", 1995)
     }
 
+    // M-H residual: the strip only fires for www. hosts or a domain-like head
+    // followed by a spaced dash; a longer domain-like title survives whole.
+    @Test
+    fun domainStripIsRestrictedToWwwOrSpacedDash() {
+        assertMovie("The.Net.Of.Lies.2020.1080p.WEB-DL.mkv", "The Net of Lies", 2020)
+        assertMovie("www.ExampleSite.com - Movie.Name.2020.1080p.mkv", "Movie Name", 2020)
+        assertMovie("ExampleSite.com - Movie.Name.2020.1080p.mkv", "Movie Name", 2020)
+    }
+
     // M14: hyphenated episode forms are episodes, not movies.
     @Test
     fun hyphenatedEpisodeForms() {
         assertEpisode("Show.S01E01-E03.720p.WEB-DL.mkv", "Show", 1, listOf(1, 3))
         assertEpisode("Show.S01-E01.720p.WEB-DL.mkv", "Show", 1, listOf(1))
+    }
+
+    // M-H residual: a range written without the second "E" is still an episode.
+    @Test
+    fun episodeRangeWithoutSecondE() {
+        assertEpisode("Show.S01E01-02.1080p.mkv", "Show", 1, listOf(1, 2))
+        assertEpisode("Show.S01E01-03.720p.WEB-DL.mkv", "Show", 1, listOf(1, 2, 3))
     }
 }

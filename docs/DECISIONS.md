@@ -108,7 +108,11 @@ are not tracked in the repository: `gradle-wrapper.jar` is regenerated in CI
 (setup-gradle pinned to Gradle 8.10.2 + `gradle wrapper`), the three
 Vazirmatn TTFs (v33.003) are fetched in CI from the official
 rastikerdar/vazirmatn repo at the same pinned version the local tree
-bundles, and the launcher icon ships as vector drawables only (adaptive
-icon on API 26+, layer-list fallback in mipmap-anydpi below that; the
-density PNGs were removed). Local builds from the source zip are
-unaffected — the zip carries the binaries.
+bundles, and the launcher icon ships as full-bleed artwork in
+`app/art/launcher-art.b64` (base64-encoded JPEG — text, so the snapshot
+route can carry it); CI decodes it and generates the density PNG mipmaps
+(`ic_launcher.png`, `ic_launcher_round.png`, plus the 432px
+`ic_launcher_art.png`) with a dependency-free JDK step in the workflow.
+The v1.0.3-era aperture vector drawables remain in the repo unused.
+Local builds from the source zip are unaffected — the zip carries the
+binaries.

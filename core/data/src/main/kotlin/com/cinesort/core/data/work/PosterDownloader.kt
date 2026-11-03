@@ -10,16 +10,24 @@ import java.net.URL
  * Downloads a matched poster image for the optional "poster in folder"
  * feature. Best effort by design: any failure returns null and the organize
  * run carries on — a poster must never fail a move.
+ *
+ * Hardened per review M-A: only the two providers' poster CDNs may be
+ * fetched (checked before the request and again after redirects), the body
+ * read is bounded by [PosterImagePolicy.MAX_BYTES], and the payload must
+ * carry a JPEG or PNG signature before it is saved as `poster.jpg`.
  */
 object PosterDownloader {
 
-    private const val MAX_BYTES = 4 * 1024 * 1024
     private const val TIMEOUT_MS = 15_000
 
     suspend fun fetch(url: String): ByteArray? = withContext(Dispatchers.IO) {
         try {
             // TMDB's metadata API hands out w185 thumbnails; folders deserve w500.
             val effective = url.replace("image.tmdb.org/t/p/w185/", "image.tmdb.org/t/p/w500/")
+            if (!PosterImagePolicy.isAllowedUrl(effective)) {
+                Timber.w("poster fetch refused: URL is not an allowed poster host")
+                return@withContext null
+            }
             val connection = URL(effective).openConnection() as HttpURLConnection
             connection.connectTimeout = TIMEOUT_MS
             connection.readTimeout = TIMEOUT_MS
@@ -29,8 +37,18 @@ object PosterDownloader {
                 Timber.w("poster fetch HTTP %d", connection.responseCode)
                 return@withContext null
             }
-            val bytes = connection.inputStream.use { it.readBytes() }
-            if (bytes.isEmpty() || bytes.size > MAX_BYTES) null else bytes
+            // Redirects must not smuggle the download off the allow-list.
+            if (!PosterImagePolicy.isAllowedUrl(connection.url.toString())) {
+                Timber.w("poster fetch refused: redirect left the allowed poster hosts")
+                return@withContext null
+            }
+            val bytes = connection.inputStream.use { PosterImagePolicy.readBounded(it) }
+                ?: return@withContext null
+            if (!PosterImagePolicy.hasImageMagic(bytes)) {
+                Timber.w("poster fetch refused: payload is not a JPEG/PNG image")
+                return@withContext null
+            }
+            bytes
         } catch (e: Exception) {
             Timber.w(e, "poster fetch failed")
             null

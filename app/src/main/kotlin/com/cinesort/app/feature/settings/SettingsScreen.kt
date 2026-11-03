@@ -877,6 +877,14 @@ fun SettingsScreen(
                                 Text(stringResource(R.string.update_install))
                             }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    SwitchRow(
+                        label = stringResource(R.string.settings_auto_check_updates),
+                        checked = settings.autoCheckUpdates,
+                        onCheckedChange = { value ->
+                            viewModel.update { it.copy(autoCheckUpdates = value) }
+                        },
+                    )
                 }
             }
         }

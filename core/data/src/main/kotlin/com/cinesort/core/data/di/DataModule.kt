@@ -25,7 +25,21 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Qualifier
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+/**
+ * The process-wide coroutine scope that outlives every ViewModel. Used for
+ * work that must finish even when the screen that started it goes away —
+ * e.g. flushing a debounced API-key save from `ViewModel.onCleared()`
+ * (review M-I), where `viewModelScope` is already cancelled.
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ApplicationScope
 
 /** v1 -> v2: operations gain the recorded source file id (review H7), and
  *  source folders gain a unique uri index (review L7; duplicates merged first). */
@@ -50,6 +64,13 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
     }
 }
 
+/** v4: operations record downloaded posters so undo can remove them (review M-A). */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE operations ADD COLUMN isPoster INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 /** Hilt wiring for the data layer (spec sections 4, 12). */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -59,7 +80,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CineSortDatabase =
         Room.databaseBuilder(context, CineSortDatabase::class.java, CineSortDatabase.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -89,6 +110,12 @@ object DataModule {
     @Provides
     @Singleton
     fun provideJournalStore(runDao: RunDao): JournalStore = RoomJournalStore(runDao)
+
+    @Provides
+    @Singleton
+    @ApplicationScope
+    fun provideApplicationScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Provides
     @Singleton

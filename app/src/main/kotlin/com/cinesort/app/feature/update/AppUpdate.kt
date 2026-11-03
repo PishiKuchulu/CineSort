@@ -44,15 +44,19 @@ import androidx.core.content.FileProvider
 import com.cinesort.app.R
 import com.cinesort.core.data.update.AppUpdateChecker
 import com.cinesort.core.data.update.AppUpdateInfo
+import com.cinesort.core.data.update.UpdateException
+import com.cinesort.core.data.update.UpdateFailure
 import com.cinesort.core.designsystem.component.formatBytes
 import com.cinesort.core.designsystem.component.toPersianDigits
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Shared state machine behind Settings → "Check for updates" and the
@@ -136,9 +140,25 @@ class AppUpdateController(context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                State.Failed(e.message ?: "Update check failed")
+                State.Failed(failureMessage(e))
             }
         }
+    }
+
+    /**
+     * The only text a failure ever shows (review M-E): a localized message
+     * picked by failure kind — never a raw exception message.
+     */
+    private fun failureMessage(e: Exception): String {
+        val res = when {
+            e is UpdateException && e.failure == UpdateFailure.NETWORK ->
+                R.string.update_error_network
+            e is UpdateException && e.failure == UpdateFailure.CHECKSUM ->
+                R.string.update_error_checksum
+            e is IOException -> R.string.update_error_network
+            else -> R.string.update_error_generic
+        }
+        return appContext.getString(res)
     }
 
     fun download(info: AppUpdateInfo) {
@@ -163,7 +183,7 @@ class AppUpdateController(context: Context) {
                 state = State.Available(info)
             } catch (e: Exception) {
                 File(dest.parentFile, dest.name + ".part").delete()
-                state = State.Failed(e.message ?: "Download failed")
+                state = State.Failed(failureMessage(e))
             }
         }
     }
@@ -174,35 +194,40 @@ class AppUpdateController(context: Context) {
 
     /** Opens the system installer; routes to the unknown-apps consent first when needed. */
     fun install(file: File) {
-        // Never hand the installer an APK signed with a different key than
-        // the running app.
-        if (!AppUpdateChecker.verifySameSigner(appContext, file)) {
-            state = State.Failed(
-                "The downloaded APK is not signed with this app's key — refusing to install.",
+        scope.launch {
+            // Never hand the installer an APK signed with a different key
+            // than the running app. Parsing/verifying the APK is blocking
+            // work, so it runs off the Main scope (review M-E); the state
+            // update and the intent stay on Main.
+            val sameSigner = withContext(Dispatchers.IO) {
+                AppUpdateChecker.verifySameSigner(appContext, file)
+            }
+            if (!sameSigner) {
+                state = State.Failed(appContext.getString(R.string.update_error_signer))
+                return@launch
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                !appContext.packageManager.canRequestPackageInstalls()
+            ) {
+                val consent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${appContext.packageName}"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { appContext.startActivity(consent) }
+                return@launch
+            }
+            val uri = FileProvider.getUriForFile(
+                appContext,
+                "${appContext.packageName}.fileprovider",
+                file,
             )
-            return
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            runCatching { appContext.startActivity(intent) }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !appContext.packageManager.canRequestPackageInstalls()
-        ) {
-            val consent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${appContext.packageName}"),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { appContext.startActivity(consent) }
-            return
-        }
-        val uri = FileProvider.getUriForFile(
-            appContext,
-            "${appContext.packageName}.fileprovider",
-            file,
-        )
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK,
-            )
-        runCatching { appContext.startActivity(intent) }
     }
 }
 

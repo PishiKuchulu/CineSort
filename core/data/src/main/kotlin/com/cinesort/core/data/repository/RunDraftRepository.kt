@@ -6,6 +6,8 @@ import com.cinesort.core.data.db.ExecutionDraftDao
 import com.cinesort.core.data.saf.SafUris
 import com.cinesort.core.data.db.ExecutionDraftEntity
 import com.cinesort.core.domain.journal.OperationRecord
+import com.cinesort.core.domain.naming.ExistingFolderMatcher
+import com.cinesort.core.domain.naming.FolderNamer
 import com.cinesort.core.domain.planner.ItemType
 import com.cinesort.core.domain.planner.PlannedItem
 import com.cinesort.core.parser.ParseResult
@@ -30,9 +32,12 @@ class RunDraftRepository(
      * supplies the file, target segments and final name; companion operations travel
      * with it. File document URIs come from the source file ids recorded at
      * execution time; for pre-v2 journals without them they are reconstructed from
-     * the recorded parent document URI plus the file name. Fields the journal does
-     * not carry (title, last-modified) stay neutral — the worker's executor path
-     * only needs the file, companions and target.
+     * the recorded parent document URI plus the file name. The journal does not
+     * carry the parsed title/type/season directly, so they are derived from the
+     * recorded target segments (review M-B): the root segment decides movie vs
+     * episode, the item's folder segment yields the title (decorations stripped)
+     * and year, and an `Sxx` segment yields the season. Only the last-modified
+     * timestamp stays neutral — the worker's executor path needs nothing more.
      */
     suspend fun writeRetryDrafts(newRunId: String, operations: List<OperationRecord>) {
         val byItem = operations.groupBy { it.itemId }
@@ -52,6 +57,19 @@ class RunDraftRepository(
                 }
                 if (uri.isEmpty()) null else uri to op.fileName
             }
+            val segments = main.destinationSegments
+            val isEpisode = segments.firstOrNull() == FolderNamer.SERIES_ROOT
+            val folderSegment = segments.getOrNull(1).orEmpty()
+            val derivedTitle = ExistingFolderMatcher.stripDecoration(folderSegment)
+            val derivedYear = YEAR_IN_SEGMENT.find(folderSegment)
+                ?.groupValues?.get(1)?.toIntOrNull()
+            val derivedSeason = if (isEpisode) {
+                segments.getOrNull(2)?.let { segment ->
+                    SEASON_SEGMENT.matchEntire(segment)?.groupValues?.get(1)?.toIntOrNull()
+                }
+            } else {
+                null
+            }
             ExecutionDraftEntity(
                 id = main.itemId,
                 runId = newRunId,
@@ -64,10 +82,10 @@ class RunDraftRepository(
                 ancestors = "",
                 companionUris = companionPairs.joinToString("\n") { it.first },
                 companionNames = companionPairs.joinToString("\n") { it.second },
-                type = ItemType.MOVIE.name,
-                title = "",
-                year = null,
-                season = null,
+                type = if (isEpisode) ItemType.EPISODE.name else ItemType.MOVIE.name,
+                title = derivedTitle,
+                year = derivedYear,
+                season = derivedSeason,
                 episodes = "",
                 targetSegments = main.destinationSegments.joinToString("/"),
                 targetFileName = main.finalName,
@@ -98,6 +116,14 @@ class RunDraftRepository(
         } catch (e: Exception) {
             null
         }
+    }
+
+    private companion object {
+        /** A ` (YYYY)` decoration inside an item's folder segment. */
+        val YEAR_IN_SEGMENT = Regex("""\(((?:19|20)\d{2})\)""")
+
+        /** A whole season folder segment, e.g. `S02` (FolderNamer's format). */
+        val SEASON_SEGMENT = Regex("""S(\d{1,3})""", RegexOption.IGNORE_CASE)
     }
 
     suspend fun draftsFor(runId: String): List<ExecutionDraftEntity> = draftDao.getByRun(runId)

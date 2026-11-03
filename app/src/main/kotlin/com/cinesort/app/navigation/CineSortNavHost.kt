@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import com.cinesort.app.feature.settings.SettingsScreen
 import com.cinesort.app.feature.update.AppUpdateController
 import com.cinesort.app.feature.update.AppUpdateDialog
 import com.cinesort.app.feature.sources.SourcesScreen
+import com.cinesort.core.data.repository.SettingsRepository
 
 private data class TabItem(val route: String, val labelRes: Int, val icon: ImageVector)
 
@@ -55,7 +57,11 @@ private val Tabs = listOf(
  * tab routes only; Scan/Preview/Run/Report and Onboarding are full-screen.
  */
 @Composable
-fun CineSortNavHost(startOnOnboarding: Boolean, persianDigits: Boolean) {
+fun CineSortNavHost(
+    startOnOnboarding: Boolean,
+    persianDigits: Boolean,
+    settingsRepository: SettingsRepository,
+) {
     val context = LocalContext.current
     // One update controller for the whole app: the launch popup and the
     // Settings → About row share its state (Anvex pattern).
@@ -72,8 +78,15 @@ fun CineSortNavHost(startOnOnboarding: Boolean, persianDigits: Boolean) {
             updateDialogDismissed = false
         }
     }
-    LaunchedEffect(Unit) {
-        updateController.check()
+    // The on-launch check is opt-out (review M-E): wait for the persisted
+    // settings (null until loaded) so a disabled preference can never race
+    // a check in before it is read. Manual checks in Settings are unaffected.
+    val settings by settingsRepository.settings.collectAsState(initial = null)
+    val autoCheckUpdates = settings?.autoCheckUpdates
+    LaunchedEffect(autoCheckUpdates) {
+        if (autoCheckUpdates == true) {
+            updateController.check()
+        }
     }
     val updateState = updateController.state
     val showUpdateDialog = !updateDialogDismissed &&

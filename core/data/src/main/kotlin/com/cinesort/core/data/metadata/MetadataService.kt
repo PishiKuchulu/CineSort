@@ -13,6 +13,7 @@ import java.io.IOException
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -68,6 +69,8 @@ private data class CachedMetadata(
     val year: Int? = null,
     val posterUrl: String? = null,
     val matchedTitle: String? = null,
+    /** Degraded hits (rating fell back, poster-only shell) get a short TTL. */
+    val degraded: Boolean = false,
 )
 
 /**
@@ -75,11 +78,13 @@ private data class CachedMetadata(
  *
  * Implements the provider matrix of section 9.1, the matching rules of
  * section 9.3, and the resilience rules of section 9.4: Room cache (30 days
- * for hits, 7 days for negative results), at most 2 retries with exponential
- * backoff for IO/5xx failures, one `Retry-After`-honouring retry on 429, and
- * OMDb quota exhaustion persisted until the next UTC midnight. Context-free:
- * Retrofit instances are built internally from the supplied base URLs and
- * the per-call [ApiKeys].
+ * for hits, 24 hours for degraded hits, 7 days for negative results), at
+ * most 2 retries with exponential backoff for IO/5xx failures, one
+ * `Retry-After`-honouring retry on 429, OMDb quota exhaustion persisted
+ * until the next UTC midnight, a TMDB→OMDb search fallback (review M-D),
+ * and a circuit breaker that short-circuits live lookups after 3 consecutive
+ * network failures. Context-free: Retrofit instances are built internally
+ * from the supplied base URLs and the per-call [ApiKeys].
  */
 class MetadataService(
     private val cacheDao: MetadataCacheDao,
@@ -98,6 +103,26 @@ class MetadataService(
 
     private class OmdbQuotaException : Exception("OMDb request limit reached")
 
+    // Circuit breaker (review M-D): after CIRCUIT_FAILURE_THRESHOLD consecutive
+    // network failures, live lookups short-circuit to unavailable for the rest
+    // of this service instance's lifetime (the app-scoped "session"), so an
+    // offline scan stops stalling on per-item retries. Any provider answer —
+    // found OR not-found — resets the counter. OMDb quota exhaustion is a
+    // provider answer, not a network failure, and never trips the breaker.
+    private val consecutiveNetworkFailures = AtomicInteger(0)
+
+    /** True while the circuit breaker is open (live lookups are short-circuited). */
+    val circuitOpen: Boolean
+        get() = consecutiveNetworkFailures.get() >= CIRCUIT_FAILURE_THRESHOLD
+
+    private fun noteLiveAnswer() {
+        consecutiveNetworkFailures.set(0)
+    }
+
+    private fun noteNetworkFailure() {
+        consecutiveNetworkFailures.incrementAndGet()
+    }
+
     // ------------------------------------------------------------ public API
 
     suspend fun enrich(
@@ -113,9 +138,13 @@ class MetadataService(
             cleanKeys.hasTmdb -> "TMDB"
             else -> "OMDB"
         }
-        val cacheKey = cacheKey(type, title, year, providerLabel)
+        val ratingSourceLabel = currentSettings()?.ratingSource?.name
+            ?: RatingSourcePreference.ANY.name
+        val cacheKey = cacheKey(type, title, year, providerLabel, ratingSourceLabel)
         val cached = readCache(cacheKey)
         if (cached.hit) return cached.info
+        // Breaker open: serve from cache only (above) and skip the network.
+        if (circuitOpen) return null
 
         val result = try {
             lookupLive(type, title, year, cleanKeys)
@@ -123,19 +152,37 @@ class MetadataService(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "metadata lookup failed")
+            noteNetworkFailure()
             LookupResult.Unavailable
         }
         return when (result) {
             is LookupResult.Found -> {
-                writeCache(cacheKey, providerLabel, result.info, negative = false)
+                writeCache(
+                    cacheKey, providerLabel, result.info,
+                    negative = false, degraded = isDegraded(result.info, cleanKeys),
+                )
                 result.info
             }
             LookupResult.NotFound -> {
-                writeCache(cacheKey, providerLabel, null, negative = true)
+                writeCache(cacheKey, providerLabel, null, negative = true, degraded = false)
                 null
             }
             LookupResult.Unavailable -> null
         }
+    }
+
+    /**
+     * A hit is degraded when its rating fell back to TMDB although an OMDb key
+     * exists (OMDb quota/outage/no IMDb rating — the preferred rating under
+     * both preferences), or when it is a poster-only shell with neither a
+     * rating nor genres. Degraded hits are cached for a day, not 30 days, so a
+     * recovered provider can replace them quickly (review M-D).
+     */
+    private fun isDegraded(info: MetadataInfo, keys: ApiKeys): Boolean {
+        if (info.rating != null && info.ratingSource == RatingSource.TMDB && keys.hasOmdb) {
+            return true
+        }
+        return info.posterUrl != null && info.rating == null && info.genres.isEmpty()
     }
 
     /** Drops every cached provider payload, positive and negative. */
@@ -227,15 +274,71 @@ class MetadataService(
 
     // ------------------------------------------------------------ live lookups
 
+    /**
+     * Provider order (review M-D): TMDB first when its key exists, but a TMDB
+     * error or miss now falls back to OMDb when an OMDb key exists (previously
+     * OMDb was only consulted for the IMDb rating of a TMDB match). Merge
+     * rule: Found beats NotFound beats Unavailable — a definitive answer from
+     * either provider wins over the other provider's outage. Rating rule: the
+     * finding provider's result carries its rating (the TMDB path already
+     * prefers the IMDb rating via OMDb under both rating preferences, with
+     * TMDB's vote as its fallback; the OMDb path carries the IMDb rating), so
+     * a fallback hit simply uses the rating of the provider that found it.
+     */
     private suspend fun lookupLive(
         type: ItemType,
         title: String,
         year: Int?,
         keys: ApiKeys,
-    ): LookupResult = when {
-        keys.hasTmdb -> tmdbLookup(type, title, year, keys)
-        keys.hasOmdb -> omdbLookup(type, title, year, keys)
-        else -> LookupResult.NotFound
+    ): LookupResult {
+        if (!keys.hasTmdb) {
+            return if (keys.hasOmdb) {
+                omdbAnswer(type, title, year, keys)
+            } else {
+                LookupResult.NotFound
+            }
+        }
+        val tmdbResult = try {
+            tmdbLookup(type, title, year, keys)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteNetworkFailure()
+            LookupResult.Unavailable
+        }
+        if (tmdbResult is LookupResult.Found) {
+            noteLiveAnswer()
+            return tmdbResult
+        }
+        if (tmdbResult is LookupResult.NotFound) noteLiveAnswer()
+        if (!keys.hasOmdb) return tmdbResult
+        val omdbResult = omdbAnswer(type, title, year, keys)
+        return when {
+            omdbResult is LookupResult.Found -> omdbResult
+            tmdbResult is LookupResult.NotFound -> LookupResult.NotFound
+            else -> omdbResult
+        }
+    }
+
+    /** OMDb lookup with breaker bookkeeping: quota is an answer, IO is a failure. */
+    private suspend fun omdbAnswer(
+        type: ItemType,
+        title: String,
+        year: Int?,
+        keys: ApiKeys,
+    ): LookupResult {
+        val result = try {
+            omdbLookup(type, title, year, keys)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteNetworkFailure()
+            return LookupResult.Unavailable
+        }
+        // Unavailable here means OMDb quota state, not a network failure: it
+        // neither trips nor resets the breaker. Found/NotFound are answers.
+        if (result !is LookupResult.Unavailable) noteLiveAnswer()
+        return result
     }
 
     private suspend fun tmdbLookup(
@@ -459,13 +562,16 @@ class MetadataService(
         title: String,
         year: Int?,
         providerLabel: String,
+        ratingSourceLabel: String,
     ): String {
         val normalized = if (type == ItemType.MOVIE) {
             NormalizedKey.movieKey(title, year)
         } else {
             NormalizedKey.seriesKey(title)
         }
-        return "${type.name}|$normalized|${year?.toString() ?: ""}|$providerLabel"
+        // The rating-source preference is part of the key (review M-D): the
+        // same title can legitimately cache different ratings per preference.
+        return "${type.name}|$normalized|${year?.toString() ?: ""}|$providerLabel|$ratingSourceLabel"
     }
 
     /** Cache read outcome: [hit] separates a cached negative (info = null) from a miss. */
@@ -473,24 +579,33 @@ class MetadataService(
 
     private suspend fun readCache(cacheKey: String): CacheRead {
         val entity = cacheDao.get(cacheKey) ?: return CacheRead(hit = false, info = null)
-        val ttl = if (entity.negative) NEGATIVE_TTL_MS else SUCCESS_TTL_MS
-        if (nowMillis() - entity.fetchedAt > ttl) return CacheRead(hit = false, info = null)
-        if (entity.negative) return CacheRead(hit = true, info = null)
+        if (entity.negative) {
+            if (nowMillis() - entity.fetchedAt > NEGATIVE_TTL_MS) {
+                return CacheRead(hit = false, info = null)
+            }
+            return CacheRead(hit = true, info = null)
+        }
         return try {
             val cached = CineSortJson.decodeFromString<CachedMetadata>(entity.payloadJson)
-            CacheRead(
-                hit = true,
-                info = MetadataInfo(
-                    genres = cached.genres,
-                    rating = cached.rating,
-                    ratingSource = cached.ratingSource?.let {
-                        runCatching { RatingSource.valueOf(it) }.getOrNull()
-                    },
-                    year = cached.year,
-                    posterUrl = cached.posterUrl,
-                    matchedTitle = cached.matchedTitle,
-                ),
-            )
+            // Degraded hits expire after a day instead of 30 days (review M-D).
+            val ttl = if (cached.degraded) DEGRADED_TTL_MS else SUCCESS_TTL_MS
+            if (nowMillis() - entity.fetchedAt > ttl) {
+                CacheRead(hit = false, info = null)
+            } else {
+                CacheRead(
+                    hit = true,
+                    info = MetadataInfo(
+                        genres = cached.genres,
+                        rating = cached.rating,
+                        ratingSource = cached.ratingSource?.let {
+                            runCatching { RatingSource.valueOf(it) }.getOrNull()
+                        },
+                        year = cached.year,
+                        posterUrl = cached.posterUrl,
+                        matchedTitle = cached.matchedTitle,
+                    ),
+                )
+            }
         } catch (e: Exception) {
             Timber.w(e, "metadata cache decode failed")
             CacheRead(hit = false, info = null)
@@ -502,6 +617,7 @@ class MetadataService(
         providerLabel: String,
         info: MetadataInfo?,
         negative: Boolean,
+        degraded: Boolean,
     ) {
         val payload = if (info == null) {
             ""
@@ -514,6 +630,7 @@ class MetadataService(
                     year = info.year,
                     posterUrl = info.posterUrl,
                     matchedTitle = info.matchedTitle,
+                    degraded = degraded,
                 ),
             )
         }
@@ -685,7 +802,9 @@ class MetadataService(
         private const val CONNECT_TIMEOUT_SECONDS = 10L
         private const val READ_TIMEOUT_SECONDS = 20L
         private const val SUCCESS_TTL_MS = 30L * 24 * 60 * 60 * 1000
+        private const val DEGRADED_TTL_MS = 24L * 60 * 60 * 1000
         private const val NEGATIVE_TTL_MS = 7L * 24 * 60 * 60 * 1000
+        private const val CIRCUIT_FAILURE_THRESHOLD = 3
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
 

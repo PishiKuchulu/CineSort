@@ -49,6 +49,18 @@ class MetadataMatcherTest {
     }
 
     @Test
+    fun exactTitleBeatsMorePopularSubsetMatch() {
+        // Review M-D: "Lucky Hank" is only a subset match for "Lucky"; the
+        // exact title must win even against a far more popular candidate.
+        val candidates = listOf(
+            MatchCandidate("Lucky Hank", 2023, popularity = 99.0),
+            MatchCandidate("Lucky", 2023, popularity = 1.0),
+        )
+        assertEquals(1, MetadataMatcher.bestIndex("Lucky", null, candidates))
+        assertEquals(1, MetadataMatcher.bestIndex("Lucky", 2023, candidates))
+    }
+
+    @Test
     fun bestReturnsNullWhenNothingIsConfident() {
         val candidates = listOf(MatchCandidate("Something Else", 2020))
         assertNull(MetadataMatcher.bestIndex("The Gentlemen", 2024, candidates))

@@ -3,7 +3,9 @@ package com.cinesort.core.data.update
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -13,6 +15,20 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.coroutineContext
+
+/**
+ * Why an update operation failed, in the only terms the UI needs: it maps
+ * each failure to a localized message (review M-E) instead of surfacing a
+ * raw exception message to the user.
+ */
+enum class UpdateFailure { NETWORK, CHECKSUM, GENERIC }
+
+/** An update failure classified by [UpdateFailure] for the UI layer. */
+class UpdateException(
+    val failure: UpdateFailure,
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 /** A newer signed release published on GitHub, with its APK asset. */
 data class AppUpdateInfo(
@@ -154,8 +170,11 @@ object AppUpdateChecker {
         onProgress: (downloaded: Long, total: Long) -> Unit,
     ) {
         requireCineSortReleaseUrl(url)
-        require(!sha256Url.isNullOrBlank()) {
-            "Update has no published checksum — refusing to install."
+        if (sha256Url.isNullOrBlank()) {
+            throw UpdateException(
+                UpdateFailure.CHECKSUM,
+                "Update has no published checksum — refusing to install.",
+            )
         }
         requireCineSortReleaseUrl(sha256Url)
         withContext(Dispatchers.IO) {
@@ -168,10 +187,18 @@ object AppUpdateChecker {
             }
             try {
                 val code = conn.responseCode
-                check(code in 200..299) { "Download failed (HTTP $code)" }
+                if (code !in 200..299) {
+                    throw UpdateException(
+                        UpdateFailure.GENERIC,
+                        "Download failed (HTTP $code)",
+                    )
+                }
                 val finalHost = conn.url.host
-                check(isAllowedUpdateRedirectHost(finalHost)) {
-                    "Update download redirected to an unexpected host: $finalHost"
+                if (!isAllowedUpdateRedirectHost(finalHost)) {
+                    throw UpdateException(
+                        UpdateFailure.GENERIC,
+                        "Update download redirected to an unexpected host: $finalHost",
+                    )
                 }
                 val total = conn.contentLengthLong
                 dest.parentFile?.mkdirs()
@@ -190,24 +217,41 @@ object AppUpdateChecker {
                             downloaded += n
                             onProgress(downloaded, if (total > 0) total else downloaded)
                         }
-                        if (total > 0) {
-                            check(downloaded == total) {
-                                "Download incomplete ($downloaded of $total bytes)."
-                            }
+                        if (total > 0 && downloaded != total) {
+                            throw UpdateException(
+                                UpdateFailure.CHECKSUM,
+                                "Download incomplete ($downloaded of $total bytes).",
+                            )
                         }
                     }
                 }
                 val expected = httpGet(sha256Url).trim()
                     .split(Regex("\\s+")).firstOrNull()?.lowercase()
-                check(!expected.isNullOrBlank() && expected.matches(Regex("[0-9a-f]{64}"))) {
-                    "Could not read a valid update checksum."
+                if (expected.isNullOrBlank() || !expected.matches(Regex("[0-9a-f]{64}"))) {
+                    throw UpdateException(
+                        UpdateFailure.CHECKSUM,
+                        "Could not read a valid update checksum.",
+                    )
                 }
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                check(actual == expected) {
-                    "Update checksum mismatch — refusing to install a corrupted or tampered file."
+                if (actual != expected) {
+                    // The sidecar hash detects a corrupted or incomplete
+                    // file; it is published alongside the APK, so it is a
+                    // corruption check, not a tamper proof (review M-E).
+                    throw UpdateException(
+                        UpdateFailure.CHECKSUM,
+                        "Update checksum mismatch — the downloaded file is " +
+                            "corrupted or incomplete.",
+                    )
                 }
                 if (dest.exists()) dest.delete()
                 check(part.renameTo(dest)) { "Could not finalize the downloaded update" }
+            } catch (e: IOException) {
+                throw UpdateException(
+                    UpdateFailure.NETWORK,
+                    "Update download failed: ${e.message}",
+                    e,
+                )
             } finally {
                 conn.disconnect()
             }
@@ -281,10 +325,43 @@ object AppUpdateChecker {
         }
         try {
             val code = conn.responseCode
-            check(code in 200..299) { "Update check failed (HTTP $code)" }
-            return conn.inputStream.bufferedReader().use { it.readText() }
+            if (code !in 200..299) {
+                throw UpdateException(
+                    UpdateFailure.GENERIC,
+                    "Update check failed (HTTP $code)",
+                )
+            }
+            // Bounded read (review M-E): the releases JSON and the checksum
+            // sidecar are small; never buffer an unbounded body.
+            val bytes = conn.inputStream.use { input ->
+                val out = ByteArrayOutputStream()
+                val chunk = ByteArray(32 * 1024)
+                var read = 0
+                while (true) {
+                    val n = input.read(chunk)
+                    if (n < 0) break
+                    read += n
+                    if (read > MAX_HTTP_GET_BYTES) {
+                        throw UpdateException(
+                            UpdateFailure.GENERIC,
+                            "Update response exceeded $MAX_HTTP_GET_BYTES bytes.",
+                        )
+                    }
+                    out.write(chunk, 0, n)
+                }
+                out.toByteArray()
+            }
+            return String(bytes, Charsets.UTF_8)
+        } catch (e: IOException) {
+            throw UpdateException(
+                UpdateFailure.NETWORK,
+                "Update request failed: ${e.message}",
+                e,
+            )
         } finally {
             conn.disconnect()
         }
     }
+
+    private const val MAX_HTTP_GET_BYTES = 2 * 1024 * 1024
 }

@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
                 CineSortNavHost(
                     startOnOnboarding = startOnOnboarding,
                     persianDigits = settings.persianDigits,
+                    settingsRepository = settingsRepository,
                 )
             }
         }

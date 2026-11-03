@@ -26,6 +26,9 @@ data class AppSettings(
     // Persian (onboarding or Settings) turns both on with the language.
     val persianDigits: Boolean = false,
     val jalaliDates: Boolean = false,
+    // In-app updater (review M-E): the on-launch check against this app's
+    // GitHub releases is opt-out; manual checks from Settings always work.
+    val autoCheckUpdates: Boolean = true,
     // Naming (mirrors NamingOptions)
     val movieAddYear: Boolean = true,
     val movieAddGenres: Boolean = false,

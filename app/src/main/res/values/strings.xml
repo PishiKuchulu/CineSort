@@ -156,6 +156,7 @@
     <string name="settings_metadata_unavailable_hold">Hold affected items</string>
     <string name="settings_genre_normalization">Normalize genre names</string>
     <string name="settings_download_posters">Download poster into each movie / series folder</string>
+    <string name="settings_auto_check_updates">Automatically check for updates</string>
     <string name="settings_clear_cache">Clear metadata cache</string>
     <string name="settings_cache_cleared">Metadata cache cleared.</string>
     <string name="settings_safety">Safety &amp; behavior</string>
@@ -346,4 +347,8 @@
     <string name="update_failed">Update check failed</string>
     <string name="update_status_failed">Failed: %1$s</string>
     <string name="update_section">Update</string>
+    <string name="update_error_network">No connection. Check your internet and try again.</string>
+    <string name="update_error_checksum">The downloaded file is corrupted or incomplete. Please try again.</string>
+    <string name="update_error_signer">The downloaded update is not signed with this app\'s key and cannot be installed.</string>
+    <string name="update_error_generic">Something went wrong while updating. Please try again.</string>
 </resources>

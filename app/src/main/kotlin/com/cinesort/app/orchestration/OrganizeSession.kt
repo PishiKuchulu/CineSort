@@ -133,12 +133,38 @@ class OrganizeSession @Inject constructor(
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
     private var scanJob: Job? = null
+
+    // Written on the session's IO scope, read from replan paths and the UI
+    // (review M-H residual): @Volatile for cross-thread visibility.
+    @Volatile
     private var lastSettings: AppSettings = AppSettings()
     private var destinationRef: DirRef? = null
     private var recentlyModifiedIds: Set<String> = emptySet()
     private var sourceRootNames: Map<String, String> = emptyMap()
-    private val selectionOverrides = mutableMapOf<String, Boolean>()
+
+    // Mutated from main-thread UI callbacks (non-suspend, so the replan mutex
+    // cannot guard them) and read under the replan mutex: a concurrent map is
+    // the correct primitive here (review M-H residual).
+    private val selectionOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    @Volatile
     private var metadataUnavailable: Boolean = false
+
+    /** Signature of the last completed enrichment (review M-D). */
+    @Volatile
+    private var lastEnrichmentSignature: EnrichmentSignature? = null
+
+    /** Everything metadata enrichment depends on besides the items themselves. */
+    private data class EnrichmentSignature(
+        val hasTmdb: Boolean,
+        val hasOmdb: Boolean,
+        val movieAddGenres: Boolean,
+        val movieAddRating: Boolean,
+        val seriesAddGenres: Boolean,
+        val seriesAddRating: Boolean,
+        val ratingSource: com.cinesort.core.data.settings.RatingSourcePreference,
+        val genreNormalization: Boolean,
+    )
 
     // ------------------------------------------------------------ scan
 
@@ -374,28 +400,57 @@ class OrganizeSession @Inject constructor(
      */
     private suspend fun enrichIfNeeded(settings: AppSettings, fromScan: Boolean = true) {
         if (!decorationNeeded(settings)) return
-        if (fromScan) {
-            _state.update { it.copy(phase = SessionPhase.ENRICHING, stageIndex = 2) }
-        }
         val tmdb = secretStore.tmdbKey.first()
         val omdb = secretStore.omdbKey.first()
         val keys = ApiKeys(
             tmdbKey = tmdb.takeIf { it.isNotBlank() },
             omdbKey = omdb.takeIf { it.isNotBlank() },
         )
+        val signature = EnrichmentSignature(
+            hasTmdb = keys.hasTmdb,
+            hasOmdb = keys.hasOmdb,
+            movieAddGenres = settings.movieAddGenres,
+            movieAddRating = settings.movieAddRating,
+            seriesAddGenres = settings.seriesAddGenres,
+            seriesAddRating = settings.seriesAddRating,
+            ratingSource = settings.ratingSource,
+            genreNormalization = settings.genreNormalization,
+        )
+        // Settings-refresh path (review M-D): re-enrich only when something
+        // metadata-relevant changed since the last completed enrichment. The
+        // old gate (metadataByKey.isEmpty()) never fetched series decoration
+        // that was enabled after a movie-only fetch. The scan path always
+        // enriches (new items) and records the signature.
+        if (!fromScan && signature == lastEnrichmentSignature) return
+        if (fromScan) {
+            _state.update { it.copy(phase = SessionPhase.ENRICHING, stageIndex = 2) }
+        }
         if (!keys.hasTmdb && !keys.hasOmdb) {
             metadataUnavailable = true
             return
         }
-        val queries = buildQueries(effectiveParseResults())
+        // Queries are built from the override-applied titles (review M-D):
+        // persisted corrections feed the queries exactly like in-session edits
+        // do, so a corrected item is decorated under its corrected title. The
+        // planner's own application of the overrides is unchanged.
+        val overrides = libraryRepository.titleOverrides()
+        val effective = planner.applyPersistedOverrides(effectiveParseResults(), overrides)
+        val queries = buildQueries(effective)
         if (queries.isEmpty()) return
         try {
             val result = metadataService.lookupAll(queries, keys)
-            if (result.isEmpty()) {
+            val unavailable = result.isEmpty() || metadataService.circuitOpen
+            if (unavailable) {
                 // Every lookup came back empty: offline / bad key / quota are
                 // indistinguishable from "not found" here, so treat a fully
-                // empty batch as unavailable for the HOLD behaviour.
+                // empty batch as unavailable for the HOLD behaviour. An open
+                // circuit breaker (review M-D) means the same even when a
+                // few cached hits came back, and the signature is only
+                // recorded for a batch that actually delivered.
                 metadataUnavailable = true
+            } else {
+                metadataUnavailable = false
+                lastEnrichmentSignature = signature
             }
             _state.update { it.copy(metadataByKey = it.metadataByKey + result) }
         } catch (e: CancellationException) {
@@ -477,7 +532,8 @@ class OrganizeSession @Inject constructor(
         scope.launch {
             val settings = settingsRepository.current()
             lastSettings = settings
-            if (decorationNeeded(settings) && _state.value.metadataByKey.isEmpty()) {
+            if (decorationNeeded(settings)) {
+                // The signature gate inside decides whether a fetch is due.
                 enrichIfNeeded(settings, fromScan = false)
             }
             replanInternal()

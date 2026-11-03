@@ -152,36 +152,75 @@ class OrganizePlanner {
     }
 
     /**
+     * Applies the persisted title overrides to raw parse results, keyed exactly
+     * as [plan] applies them internally. Exposed so the session can build
+     * metadata queries from the same effective titles the planner will use
+     * (review M-D): without this, corrected items were queried under their
+     * uncorrected titles and got no decoration.
+     */
+    fun applyPersistedOverrides(
+        results: Map<String, ParseResult>,
+        overrides: List<TitleOverride>,
+    ): Map<String, ParseResult> {
+        if (overrides.isEmpty()) return results
+        val overrideByKey = overrides.associateBy { it.normalizedKey }
+        return results.mapValues { (_, raw) -> applyOverride(raw, overrideByKey) }
+    }
+
+    /**
      * One folder per work within a plan (review M3): items whose titles differ
      * only in punctuation/casing ("Spider-Man" vs "Spider.Man") share a normalized
      * key, so the first item's folder name becomes canonical for the group.
+     *
+     * Movies key on title + year (different years are different works). Episodes
+     * key on the series title ONLY (review L-A): an episode's own year hint must
+     * not split one series into two folders — the group's canonical folder is
+     * the one built by the first episode that carries a hint (with "add year to
+     * series folder" on, that folder carries the group's canonical year), or
+     * the first episode's folder when no episode carries a hint.
      */
-    private fun unifyFolderNames(items: List<PlannedItem>): List<PlannedItem> {
+    private fun unifyKey(item: PlannedItem): String? {
+        if (item.targetSegments.size < 2) return null
+        return when (val e = item.effective) {
+            is ParseResult.Movie ->
+                item.targetSegments[0] + "|" + NormalizedKey.of(e.title) + "|" +
+                    (e.year?.toString() ?: "")
+            is ParseResult.Episode ->
+                item.targetSegments[0] + "|" + NormalizedKey.of(e.seriesTitle)
+            else -> null
+        }
+    }
+
+    /**
+     * Pass 1 of folder unification: the canonical folder per group. For series
+     * groups the first HINTED episode's folder wins over an unhinted one
+     * wherever it appears in the group, so this cannot fold into the emit pass.
+     */
+    private fun canonicalFolders(items: List<PlannedItem>): Map<String, String> {
         val canonical = mutableMapOf<String, String>()
-        return items.map { item ->
-            if (item.targetSegments.size < 2) return@map item
-            val title: String
-            val year: Int?
-            when (val e = item.effective) {
-                is ParseResult.Movie -> {
-                    title = e.title
-                    year = e.year
-                }
-                is ParseResult.Episode -> {
-                    title = e.seriesTitle
-                    year = e.seriesYearHint
-                }
-                else -> return@map item
+        val hintedSeries = mutableSetOf<String>()
+        for (item in items) {
+            val key = unifyKey(item) ?: continue
+            val e = item.effective
+            val hinted = e is ParseResult.Episode && e.seriesYearHint != null
+            if (key !in canonical || (hinted && key !in hintedSeries)) {
+                canonical[key] = item.targetSegments[1]
+                if (hinted) hintedSeries += key
             }
-            val key = item.targetSegments[0] + "|" + NormalizedKey.of(title) + "|" +
-                (year?.toString() ?: "")
-            val folder = item.targetSegments[1]
-            val existing = canonical.putIfAbsent(key, folder)
-            if (existing == null || existing == folder) {
+        }
+        return canonical
+    }
+
+    private fun unifyFolderNames(items: List<PlannedItem>): List<PlannedItem> {
+        val canonical = canonicalFolders(items)
+        return items.map { item ->
+            val key = unifyKey(item) ?: return@map item
+            val folder = canonical[key] ?: return@map item
+            if (folder == item.targetSegments[1]) {
                 item
             } else {
                 item.copy(
-                    targetSegments = listOf(item.targetSegments[0], existing) +
+                    targetSegments = listOf(item.targetSegments[0], folder) +
                         item.targetSegments.drop(2),
                 )
             }

@@ -6,7 +6,7 @@ import com.cinesort.core.domain.journal.OperationRecord
 import com.cinesort.core.domain.journal.OperationState
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
-import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
 data class UndoReport(
     val runId: String,
@@ -28,6 +28,9 @@ class UndoExecutor(
     suspend fun undo(runId: String): UndoReport {
         val run = journal.run(runId) ?: return UndoReport(runId, 0, listOf("run not found"), 0)
         if (run.undone) return UndoReport(runId, 0, listOf("run already undone"), 0)
+        // Only DONE ops are walked (review M-C): ops a previous undo attempt
+        // already restored are persisted as UNDONE and skipped silently here,
+        // instead of being re-walked and misreported as missing files.
         val ops = journal.operationsOf(runId).filter { it.state == OperationState.DONE }
         val problems = mutableListOf<String>()
         // Deepest first; the path tiebreak matters (review H1): a depth-only
@@ -42,8 +45,17 @@ class UndoExecutor(
         val dirCache = mutableMapOf<String, DirRef>()
         var movedBack = 0
         for (op in ops.asReversed()) {
+            if (op.isPoster) continue
             createdDirs += op.createdDirs
             if (undoOperation(op, executor, dirCache, problems)) movedBack++
+        }
+
+        // Downloaded posters are deleted, not moved back (review M-A), and
+        // they must go before the created-dir cleanup: a folder still holding
+        // poster.jpg is not empty and would survive the undo.
+        for (op in ops.filter { it.isPoster }) {
+            createdDirs += op.createdDirs
+            undoPoster(op, executor, dirCache, problems)
         }
 
         val removedDirs = removeEmptyCreatedDirs(createdDirs, problems)
@@ -52,6 +64,7 @@ class UndoExecutor(
     }
 
     /** Undoes one operation; returns true when its file was moved back. */
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun undoOperation(
         op: OperationRecord,
         executor: OrganizeExecutor,
@@ -60,13 +73,50 @@ class UndoExecutor(
     ): Boolean {
         try {
             val located = locateMovedFile(op, executor, dirCache, problems) ?: return false
-            return moveBack(op, located.first, located.second, problems)
-        } catch (e: IOException) {
+            val moved = moveBack(op, located.first, located.second, problems)
+            if (moved) {
+                // Review M-C: persist the per-op undone marker so a later undo
+                // attempt skips this op and the run can reach fully-undone.
+                journal.updateOperation(op.copy(state = OperationState.UNDONE))
+            }
+            return moved
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Review H-A: any provider/runtime failure is reported for this op
+            // and the undo continues with the remaining ops.
             problems += "${op.finalName}: ${e.message ?: e.javaClass.simpleName}"
             return false
-        } catch (e: SecurityException) {
+        }
+    }
+
+    /**
+     * Deletes one journaled poster file from its destination folder (review
+     * M-A) and marks the op UNDONE. A folder or poster that is already gone
+     * needs no action — the desired end state (no poster) already holds. A
+     * failed delete is reported and the op stays DONE, so a later undo
+     * attempt retries it (same semantics as file ops).
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun undoPoster(
+        op: OperationRecord,
+        executor: OrganizeExecutor,
+        dirCache: MutableMap<String, DirRef>,
+        problems: MutableList<String>,
+    ) {
+        try {
+            val folder = executor.resolveDirs(op.destinationSegments, dirCache)
+            val poster = folder?.let {
+                gateway.listChildren(it)
+                    .firstOrNull { child -> !child.isDirectory && child.ref.name == op.finalName }
+                    ?.ref
+            }
+            if (poster != null) gateway.delete(poster)
+            journal.updateOperation(op.copy(state = OperationState.UNDONE))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             problems += "${op.finalName}: ${e.message ?: e.javaClass.simpleName}"
-            return false
         }
     }
 
@@ -128,6 +178,7 @@ class UndoExecutor(
     }
 
     /** Removes run-created directories that are still empty, deepest first. */
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun removeEmptyCreatedDirs(
         createdDirs: Set<String>,
         problems: MutableList<String>,
@@ -140,9 +191,9 @@ class UndoExecutor(
                     gateway.delete(dir)
                     removedDirs++
                 }
-            } catch (e: IOException) {
-                problems += "dir $dirPath: ${e.message ?: e.javaClass.simpleName}"
-            } catch (e: SecurityException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 problems += "dir $dirPath: ${e.message ?: e.javaClass.simpleName}"
             }
         }

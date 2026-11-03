@@ -62,6 +62,7 @@ class SettingsRepository(context: Context) {
             dynamicColor = this[Keys.DYNAMIC_COLOR] ?: defaults.dynamicColor,
             persianDigits = this[Keys.PERSIAN_DIGITS] ?: defaults.persianDigits,
             jalaliDates = this[Keys.JALALI_DATES] ?: defaults.jalaliDates,
+            autoCheckUpdates = this[Keys.AUTO_CHECK_UPDATES] ?: defaults.autoCheckUpdates,
             movieAddYear = this[Keys.MOVIE_ADD_YEAR] ?: defaults.movieAddYear,
             movieAddGenres = this[Keys.MOVIE_ADD_GENRES] ?: defaults.movieAddGenres,
             movieAddRating = this[Keys.MOVIE_ADD_RATING] ?: defaults.movieAddRating,
@@ -103,6 +104,7 @@ class SettingsRepository(context: Context) {
         this[Keys.DYNAMIC_COLOR] = s.dynamicColor
         this[Keys.PERSIAN_DIGITS] = s.persianDigits
         this[Keys.JALALI_DATES] = s.jalaliDates
+        this[Keys.AUTO_CHECK_UPDATES] = s.autoCheckUpdates
         this[Keys.MOVIE_ADD_YEAR] = s.movieAddYear
         this[Keys.MOVIE_ADD_GENRES] = s.movieAddGenres
         this[Keys.MOVIE_ADD_RATING] = s.movieAddRating
@@ -138,6 +140,7 @@ class SettingsRepository(context: Context) {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val PERSIAN_DIGITS = booleanPreferencesKey("persian_digits")
         val JALALI_DATES = booleanPreferencesKey("jalali_dates")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val MOVIE_ADD_YEAR = booleanPreferencesKey("movie_add_year")
         val MOVIE_ADD_GENRES = booleanPreferencesKey("movie_add_genres")
         val MOVIE_ADD_RATING = booleanPreferencesKey("movie_add_rating")

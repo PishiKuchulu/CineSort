@@ -156,6 +156,7 @@
     <string name="settings_metadata_unavailable_hold">نگه داشتن موارد آسیب‌دیده</string>
     <string name="settings_genre_normalization">یکدست‌سازی نام ژانرها</string>
     <string name="settings_download_posters">دانلود پوستر در پوشهٔ هر فیلم و سریال</string>
+    <string name="settings_auto_check_updates">بررسی خودکار به‌روزرسانی</string>
     <string name="settings_clear_cache">پاک کردن حافظه‌ی فراداده</string>
     <string name="settings_cache_cleared">حافظه‌ی فراداده پاک شد.</string>
     <string name="settings_safety">ایمنی و رفتار</string>
@@ -346,4 +347,8 @@
     <string name="update_failed">بررسی به‌روزرسانی ناموفق بود</string>
     <string name="update_status_failed">خطا: %1$s</string>
     <string name="update_section">به‌روزرسانی</string>
+    <string name="update_error_network">اتصال برقرار نیست. اینترنت را بررسی کنید و دوباره تلاش کنید.</string>
+    <string name="update_error_checksum">فایل دانلودشده خراب یا ناقص است. لطفاً دوباره تلاش کنید.</string>
+    <string name="update_error_signer">به‌روزرسانی دانلودشده با کلید این برنامه امضا نشده است و قابل نصب نیست.</string>
+    <string name="update_error_generic">هنگام به‌روزرسانی خطایی رخ داد. لطفاً دوباره تلاش کنید.</string>
 </resources>

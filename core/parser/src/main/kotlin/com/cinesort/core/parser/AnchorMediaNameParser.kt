@@ -125,9 +125,17 @@ class AnchorMediaNameParser(
 
     // Hyphenated forms (S01-E01, S01E01-E03) keep the hyphen inside the token, so
     // the episode patterns allow one optional separator (spec 6.3-B, review M14).
-    private val combinedEpisodeRegex = Regex("""^S(\d{1,2})[._-]?E(\d{1,3})((?:[._-]?E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
+    // A trailing "-NN" after the episode number is a range end without the second
+    // "E" (S01E01-02 = episodes 1..2, review M-H residual).
+    private val combinedEpisodeRegex = Regex(
+        """^S(\d{1,2})[._-]?E(\d{1,3})((?:[._-]?E\d{1,3})*)(?:-(\d{1,3}))?$""",
+        RegexOption.IGNORE_CASE,
+    )
     private val seasonOnlyTokenRegex = Regex("""^S(\d{1,2})$""", RegexOption.IGNORE_CASE)
-    private val episodeOnlyTokenRegex = Regex("""^E(\d{1,3})((?:[._-]?E\d{1,3})*)$""", RegexOption.IGNORE_CASE)
+    private val episodeOnlyTokenRegex = Regex(
+        """^E(\d{1,3})((?:[._-]?E\d{1,3})*)(?:-(\d{1,3}))?$""",
+        RegexOption.IGNORE_CASE,
+    )
     private val xEpisodeRegex = Regex("""^(\d{1,2})x(\d{2,3})$""", RegexOption.IGNORE_CASE)
     private val extraEpisodeRegex = Regex("""^E(\d{1,3})$""", RegexOption.IGNORE_CASE)
     private val plainNumberRegex = Regex("""^\d{1,3}$""")
@@ -150,11 +158,27 @@ class AnchorMediaNameParser(
             ?: xEpisodeHit(tokens[i].text, i)
             ?: seasonWordsHit(tokens, i)
 
+    /**
+     * Expands an `S01E01-05`-style range end into [episodes]: every number from
+     * the first episode to the range end is added (missing ones filled in). An
+     * implausible span or a non-increasing end leaves the list untouched.
+     */
+    private fun expandEpisodeRange(episodes: MutableList<Int>, rangeEndText: String) {
+        val rangeEnd = rangeEndText.toIntOrNull() ?: return
+        val first = episodes.firstOrNull() ?: return
+        if (rangeEnd <= first || rangeEnd - first > MAX_EPISODE_RANGE_SPAN) return
+        for (episode in first..rangeEnd) {
+            if (episode !in episodes) episodes += episode
+        }
+        episodes.sort()
+    }
+
     private fun combinedEpisodeHit(tokens: List<Token>, i: Int): EpisodeHit? {
         val m = combinedEpisodeRegex.matchEntire(tokens[i].text) ?: return null
         val episodes = mutableListOf(m.groupValues[2].toInt())
         episodes += extraEpisodeNumberRegex
             .findAll(m.groupValues[3]).map { it.groupValues[1].toInt() }.toList()
+        expandEpisodeRange(episodes, m.groupValues[4])
         var end = i
         // Consume following pure E## tokens (S01E01 E02 style).
         while (end + 1 < tokens.size) {
@@ -172,6 +196,7 @@ class AnchorMediaNameParser(
         val episodes = mutableListOf(e.groupValues[1].toInt())
         episodes += extraEpisodeNumberRegex
             .findAll(e.groupValues[2]).map { it.groupValues[1].toInt() }.toList()
+        expandEpisodeRange(episodes, e.groupValues[3])
         return EpisodeHit(i, i + 1, m.groupValues[1].toInt(), episodes)
     }
 
@@ -495,17 +520,54 @@ class AnchorMediaNameParser(
         // 3. Leading promo prefixes — only if a valid anchor still exists afterwards.
         val strippedBracket = bracketPrefixRegex.replace(name, "")
         if (strippedBracket != name && hasAnyAnchor(strippedBracket)) name = strippedBracket
-        val strippedDomain = domainPrefixRegex.replace(name, "")
-        if (strippedDomain != name && strippedDomain.isNotBlank() &&
-            hasAnchorAfterTitleToken(strippedDomain)
-        ) {
-            name = strippedDomain
-        }
+        name = stripDomainPrefix(name)
         // A leftover leading bracketed chunk that hid the anchor check above still goes
         // when what follows parses (covers "[Group] Movie.2020" style names).
         // 4. Unicode NFC.
         name = Normalizer.normalize(name, Normalizer.Form.NFC)
         return Cleaned(name, tokenize(name))
+    }
+
+    private val domainLikeHeadRegex = Regex("""^[\w-]+(?:\.[\w-]+)+$""")
+
+    private companion object {
+        const val WWW_PREFIX = "www."
+        const val SPACED_DASH = " - "
+        /** Widest plausible span for an `S01E01-05`-style episode range. */
+        const val MAX_EPISODE_RANGE_SPAN = 50
+    }
+
+    /**
+     * Strips a leading release-site prefix, but only in the two shapes that are
+     * unambiguous (review M-H residual): (a) a `www.`-prefixed host, or (b) a
+     * domain-like head token run immediately followed by a spaced dash
+     * ("ExampleSite.com - Title..."). A merely domain-LIKE title ("The.Net.…")
+     * is not a prefix: the old shape-based regex ate "The.Net." out of
+     * "The.Net.Of.Lies.2020…" and left "Of Lies" as the title. Both shapes still
+     * require a surviving title token before an anchor after the strip.
+     */
+    private fun stripDomainPrefix(name: String): String {
+        if (name.startsWith(WWW_PREFIX, ignoreCase = true)) {
+            val stripped = domainPrefixRegex.replace(name, "")
+            return if (stripped != name && stripped.isNotBlank() &&
+                hasAnchorAfterTitleToken(stripped)
+            ) {
+                stripped
+            } else {
+                name
+            }
+        }
+        val dashIndex = name.indexOf(SPACED_DASH)
+        if (dashIndex > 0) {
+            val head = name.substring(0, dashIndex).trim()
+            if (domainLikeHeadRegex.matches(head)) {
+                val stripped = name.substring(dashIndex + SPACED_DASH.length)
+                if (stripped.isNotBlank() && hasAnchorAfterTitleToken(stripped)) {
+                    return stripped
+                }
+            }
+        }
+        return name
     }
 
     private fun hasAnyAnchor(s: String): Boolean {

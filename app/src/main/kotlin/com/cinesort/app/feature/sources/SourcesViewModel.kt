@@ -9,8 +9,8 @@ import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.usecase.EnsureLibraryRootsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -109,7 +109,12 @@ class SourcesViewModel @Inject constructor(
                     created = result.created,
                     found = result.found,
                 )
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Review H-A: a provider SecurityException or a malformed-URI
+                // IllegalArgumentException must surface the same error state as
+                // an IOException, not crash the app via viewModelScope.
                 rootsResult.value = RootsResultUi(
                     created = emptyList(),
                     found = emptyList(),

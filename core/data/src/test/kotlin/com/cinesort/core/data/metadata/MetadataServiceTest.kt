@@ -2,12 +2,16 @@ package com.cinesort.core.data.metadata
 
 import com.cinesort.core.data.db.MetadataCacheDao
 import com.cinesort.core.data.db.MetadataCacheEntity
+import com.cinesort.core.data.repository.SettingsRepository
+import com.cinesort.core.data.settings.RatingSourcePreference
 import com.cinesort.core.domain.planner.ItemType
+import com.cinesort.core.domain.planner.RatingSource
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -149,6 +153,151 @@ class MetadataServiceTest {
     fun `no keys means no HTTP and null`() = runTest {
         assertNull(service.enrich(ItemType.MOVIE, "Inception", 2010, ApiKeys()))
         assertEquals(0, server.requestCount)
+    }
+
+    private val tmdbEmpty = """{"page":1,"results":[],"total_pages":0,"total_results":0}"""
+
+    private val omdbInception = """
+        {"Title":"Inception","Year":"2010","Genre":"Action, Sci-Fi","imdbRating":"8.8",
+        "imdbID":"tt1375666","Type":"movie","Response":"True"}
+    """.trimIndent()
+
+    private val serverError = """{"status_message":"boom"}"""
+
+    @Test
+    fun `tmdb miss falls back to omdb when both keys exist`() = runTest {
+        server.enqueue(json(tmdbEmpty)) // TMDB search with year
+        server.enqueue(json(tmdbEmpty)) // TMDB search without year (spec 9.3 retry)
+        server.enqueue(json(omdbInception)) // OMDb direct title lookup
+        val info = service.enrich(
+            ItemType.MOVIE, "Inception", 2010, ApiKeys(tmdbKey = "t", omdbKey = "o"),
+        )
+        assertNotNull(info)
+        assertEquals(8.8, info!!.rating!!, 0.001)
+        assertEquals(RatingSource.IMDB, info.ratingSource)
+        assertEquals("Inception", info.matchedTitle)
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `tmdb outage falls back to omdb when both keys exist`() = runTest {
+        repeat(3) { server.enqueue(json(serverError, code = 500)) } // search + 2 retries
+        server.enqueue(json(omdbInception))
+        val info = service.enrich(
+            ItemType.MOVIE, "Inception", 2010, ApiKeys(tmdbKey = "t", omdbKey = "o"),
+        )
+        assertNotNull(info)
+        assertEquals(8.8, info!!.rating!!, 0.001)
+        assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun `circuit breaker opens after three consecutive network failures`() = runTest {
+        val keys = ApiKeys(tmdbKey = "t")
+        // Each failed lookup burns 3 requests (search + 2 retries on HTTP 500).
+        repeat(9) { server.enqueue(json(serverError, code = 500)) }
+        assertNull(service.enrich(ItemType.MOVIE, "Fail One", 2001, keys))
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Two", 2002, keys))
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Three", 2003, keys))
+        assertTrue(service.circuitOpen)
+        val before = server.requestCount
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Four", 2004, keys))
+        assertEquals(before, server.requestCount, "open breaker must not touch the network")
+    }
+
+    @Test
+    fun `a provider answer resets the breaker failure count`() = runTest {
+        val keys = ApiKeys(tmdbKey = "t")
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        assertNull(service.enrich(ItemType.MOVIE, "Fail One", 2001, keys)) // failure 1
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Two", 2002, keys)) // failure 2
+        server.enqueue(json(tmdbHit))
+        server.enqueue(json(tmdbDetails))
+        assertNotNull(service.enrich(ItemType.MOVIE, "Inception", 2010, keys)) // answer: reset
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Three", 2003, keys)) // failure 1
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Four", 2004, keys)) // failure 2
+        assertFalse(service.circuitOpen)
+        // The next lookup still goes live — and its failure (the third in a
+        // row since the answer) finally opens the breaker.
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        val before = server.requestCount
+        assertNull(service.enrich(ItemType.MOVIE, "Fail Five", 2005, keys))
+        assertEquals(before + 3, server.requestCount)
+        assertTrue(service.circuitOpen)
+    }
+
+    @Test
+    fun `degraded hits expire after a day while full hits survive`() = runTest {
+        var now = 1_700_000_000_000L
+        val timed = MetadataService(
+            cacheDao = dao,
+            settingsRepository = null,
+            tmdbBaseUrl = server.url("/3/").toString(),
+            omdbBaseUrl = server.url("/").toString(),
+            nowMillis = { now },
+        )
+        val keys = ApiKeys(tmdbKey = "t", omdbKey = "o")
+        // TMDB finds the film but the OMDb rating call fails (500 + retries),
+        // so the rating falls back to TMDB's vote: a degraded hit.
+        server.enqueue(json(tmdbHit))
+        server.enqueue(json(tmdbDetails))
+        repeat(3) { server.enqueue(json(serverError, code = 500)) }
+        val degraded = timed.enrich(ItemType.MOVIE, "Inception", 2010, keys)
+        assertNotNull(degraded)
+        assertEquals(8.4, degraded!!.rating!!, 0.001)
+        assertEquals(RatingSource.TMDB, degraded.ratingSource)
+        val afterFirst = server.requestCount
+
+        // 23h later the degraded entry is still served from cache.
+        now += 23L * 60 * 60 * 1000
+        assertNotNull(timed.enrich(ItemType.MOVIE, "Inception", 2010, keys))
+        assertEquals(afterFirst, server.requestCount)
+
+        // At 25h it has expired (24h degraded TTL): the live retry now gets
+        // the IMDb rating and caches a full hit instead.
+        now += 2L * 60 * 60 * 1000
+        server.enqueue(json(tmdbHit))
+        server.enqueue(json(tmdbDetails))
+        server.enqueue(json(omdbInception)) // OMDb byId rating fetch
+        val refreshed = timed.enrich(ItemType.MOVIE, "Inception", 2010, keys)
+        assertNotNull(refreshed)
+        assertEquals(8.8, refreshed!!.rating!!, 0.001)
+        assertEquals(RatingSource.IMDB, refreshed.ratingSource)
+        val afterRefresh = server.requestCount
+        assertTrue(afterRefresh > afterFirst)
+
+        // 29 days on, the full hit is still cached (30-day success TTL).
+        now += 29L * 24 * 60 * 60 * 1000
+        assertNotNull(timed.enrich(ItemType.MOVIE, "Inception", 2010, keys))
+        assertEquals(afterRefresh, server.requestCount)
+    }
+
+    @Test
+    fun `cache key separates rating source preferences`() = runTest {
+        val repo = SettingsRepository()
+        val svc = MetadataService(
+            cacheDao = dao,
+            settingsRepository = repo,
+            tmdbBaseUrl = server.url("/3/").toString(),
+            omdbBaseUrl = server.url("/").toString(),
+        )
+        val keys = ApiKeys(tmdbKey = "k")
+        server.enqueue(json(tmdbHit))
+        server.enqueue(json(tmdbDetails))
+        assertNotNull(svc.enrich(ItemType.MOVIE, "Inception", 2010, keys))
+        assertEquals(2, server.requestCount)
+        // Under IMDB_ONLY the ANY cache row must not be reused (review M-D):
+        // the lookup goes live again and, with no OMDb key, yields no rating.
+        repo.update { it.copy(ratingSource = RatingSourcePreference.IMDB_ONLY) }
+        server.enqueue(json(tmdbHit))
+        server.enqueue(json(tmdbDetails))
+        val imdbOnly = svc.enrich(ItemType.MOVIE, "Inception", 2010, keys)
+        assertNotNull(imdbOnly)
+        assertNull(imdbOnly!!.rating)
+        assertEquals(4, server.requestCount)
     }
 
     @Test

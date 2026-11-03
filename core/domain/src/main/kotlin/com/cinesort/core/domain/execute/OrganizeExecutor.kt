@@ -9,7 +9,6 @@ import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
 import com.cinesort.core.domain.planner.PlannedItem
 import com.cinesort.core.domain.planner.PlannedStatus
-import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
@@ -42,6 +41,7 @@ class OrganizeExecutor(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
+    @Suppress("TooGenericExceptionCaught")
     suspend fun execute(
         runId: String,
         items: List<PlannedItem>,
@@ -74,6 +74,14 @@ class OrganizeExecutor(
                     ),
                 )
             }
+        // Per-operation resume (review M-B): operations an earlier attempt of
+        // this run already completed are skipped instead of re-executed. An item
+        // whose video op is DONE but whose companion op FAILED must not re-run
+        // the video move — its source is gone, so the move would fail and the
+        // companion would never be retried.
+        val doneOpsByItem = journal.operationsOf(runId)
+            .filter { it.state == OperationState.DONE }
+            .groupBy { it.itemId }
         val bytesTotal = runnable.sumOf { it.sizeBytes }
         var bytesDone = 0L
         var done = 0
@@ -87,21 +95,17 @@ class OrganizeExecutor(
             coroutineContext.ensureActive()
             onProgress(ExecutionProgress(index, runnable.size, item.scanned.file.name, bytesDone, bytesTotal))
             try {
-                val createdDirs = mutableListOf<String>()
-                val targetDir = ensureDirs(item.targetSegments, dirCache, createdDirs)
-                moveOne(item.scanned.file, item, targetDir, runId, createdDirs, isCompanion = false)
-                for (companion in item.companions) {
-                    moveOne(companion, item, targetDir, runId, createdDirs, isCompanion = true)
-                }
+                executeItem(runId, item, dirCache, doneOpsByItem[item.id].orEmpty())
                 done++
                 bytesDone += item.sizeBytes
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: IOException) {
-                val reason = e.message ?: e.javaClass.simpleName
-                failed += item.scanned.file.name to reason
-                markItemFailed(runId, item, reason)
-            } catch (e: SecurityException) {
+            } catch (e: Exception) {
+                // Review H-A: ANY failure of one item (a provider's
+                // IllegalStateException, a malformed-URI IllegalArgumentException,
+                // not just IOException/SecurityException) is recorded and the run
+                // continues — one bad file must never abort the remaining items
+                // or skip markRunFinished.
                 val reason = e.message ?: e.javaClass.simpleName
                 failed += item.scanned.file.name to reason
                 markItemFailed(runId, item, reason)
@@ -110,6 +114,39 @@ class OrganizeExecutor(
         journal.markRunFinished(runId, clock())
         onProgress(ExecutionProgress(runnable.size, runnable.size, null, bytesDone, bytesTotal))
         return ExecutionReport(runId, done, failed, skipped)
+    }
+
+    /** Moves one item's file and companions, skipping ops already DONE (review M-B). */
+    private suspend fun executeItem(
+        runId: String,
+        item: PlannedItem,
+        dirCache: MutableMap<String, DirRef>,
+        doneOps: List<OperationRecord>,
+    ) {
+        val createdDirs = mutableListOf<String>()
+        val targetDir = ensureDirs(item.targetSegments, dirCache, createdDirs)
+        if (!isAlreadyDone(doneOps, item.scanned.file, isCompanion = false)) {
+            moveOne(item.scanned.file, item, targetDir, runId, createdDirs, isCompanion = false)
+        }
+        for (companion in item.companions) {
+            if (!isAlreadyDone(doneOps, companion, isCompanion = true)) {
+                moveOne(companion, item, targetDir, runId, createdDirs, isCompanion = true)
+            }
+        }
+    }
+
+    /**
+     * True when [doneOps] already contains a completed operation for [file]
+     * (review M-B). Matching prefers the recorded source file id; journals from
+     * before the id was recorded fall back to the file name.
+     */
+    private fun isAlreadyDone(
+        doneOps: List<OperationRecord>,
+        file: FileRef,
+        isCompanion: Boolean,
+    ): Boolean = doneOps.any { op ->
+        op.isCompanion == isCompanion &&
+            (op.sourceFileId == file.id || (op.sourceFileId.isEmpty() && op.fileName == file.name))
     }
 
     /**

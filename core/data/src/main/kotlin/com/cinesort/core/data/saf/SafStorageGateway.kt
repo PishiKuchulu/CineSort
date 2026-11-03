@@ -210,6 +210,11 @@ class SafStorageGateway(context: Context) : StorageGateway {
                     parentId = current.dir.id,
                 )
             }
+            // Id → position index built once per folder (review M-H residual):
+            // a per-file indexOfFirst over the sibling list made scanning a
+            // folder with N files O(N²) in string comparisons.
+            val siblingIndexById = HashMap<String, Int>(siblingRefs.size)
+            siblingRefs.forEachIndexed { index, ref -> siblingIndexById[ref.id] = index }
 
             for (child in children) {
                 currentCoroutineContext().ensureActive()
@@ -238,14 +243,12 @@ class SafStorageGateway(context: Context) : StorageGateway {
                     continue
                 }
 
-                // Crash leftovers from an interrupted verified copy are removed on sight.
+                // Crash leftovers from an interrupted verified copy (review
+                // L-F): a scan must never delete files, so partials are only
+                // reported as skipped here. The organize worker removes them
+                // under the destination root at run start instead.
                 if (child.name.endsWith(PART_SUFFIX)) {
-                    try {
-                        DocumentsContract.deleteDocument(resolver, childDocumentUri)
-                    } catch (e: Exception) {
-                        Timber.w(e, "stale partial cleanup failed for %s", child.name)
-                    }
-                    emit(ScanEvent.Skipped(child.name, "stale partial file removed"))
+                    emit(ScanEvent.Skipped(child.name, "stale partial file"))
                     continue
                 }
 
@@ -255,7 +258,7 @@ class SafStorageGateway(context: Context) : StorageGateway {
                 // default settings, or user-disabled filters could never be honored.
                 // Siblings are a lazy view (review H4): copying an N-1 list for each
                 // of N files in a folder made scanning quadratic in memory.
-                val selfIndex = siblingRefs.indexOfFirst { it.id == childDocumentUri.toString() }
+                val selfIndex = siblingIndexById[childDocumentUri.toString()] ?: -1
                 val fileRef = siblingRefs[selfIndex]
                 emit(
                     ScanEvent.Found(

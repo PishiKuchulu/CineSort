@@ -81,6 +81,8 @@ data class OperationEntity(
     val bytesTotal: Long = 0,
     val bytesDone: Long = 0,
     val isCompanion: Boolean = false,
+    /** Downloaded poster inside the destination folder (review M-A); v4 column. */
+    val isPoster: Boolean = false,
     val failureReason: String? = null,
     /** Directories created by this run for this operation, joined with '\n'. */
     val createdDirs: String = "",

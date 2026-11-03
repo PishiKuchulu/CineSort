@@ -3,6 +3,7 @@ package com.cinesort.app.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cinesort.core.data.db.TitleOverrideEntity
+import com.cinesort.core.data.di.ApplicationScope
 import com.cinesort.core.data.metadata.MetadataService
 import com.cinesort.core.data.repository.LibraryRepository
 import com.cinesort.core.data.repository.SecretStore
@@ -11,6 +12,7 @@ import com.cinesort.core.data.settings.AppSettings
 import com.cinesort.core.domain.journal.JournalStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,7 @@ class SettingsViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val metadataService: MetadataService,
     private val journalStore: JournalStore,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val tmdbTest = MutableStateFlow<KeyTestUi?>(null)
@@ -57,6 +60,11 @@ class SettingsViewModel @Inject constructor(
     private val omdbKeyField = MutableStateFlow<String?>(null)
     private var tmdbSaveJob: Job? = null
     private var omdbSaveJob: Job? = null
+    // The latest key values the debounce has not written yet (review M-I).
+    // Kept outside the jobs so an explicit flush — or onCleared — can write
+    // them even when the viewModelScope job is cancelled first.
+    private var pendingTmdbKey: String? = null
+    private var pendingOmdbKey: String? = null
     private val testingTmdb = MutableStateFlow(false)
     private val testingOmdb = MutableStateFlow(false)
     private val cacheCleared = MutableStateFlow(false)
@@ -99,28 +107,29 @@ class SettingsViewModel @Inject constructor(
     fun onTmdbKeyChange(value: String) {
         tmdbTest.value = null
         tmdbKeyField.value = value
+        pendingTmdbKey = value
         tmdbSaveJob?.cancel()
         tmdbSaveJob = viewModelScope.launch {
             delay(KEY_SAVE_DEBOUNCE_MS)
-            secretStore.setTmdbKey(value)
-            tmdbKeyField.value = null
+            flushTmdbKey()
         }
     }
 
     fun onOmdbKeyChange(value: String) {
         omdbTest.value = null
         omdbKeyField.value = value
+        pendingOmdbKey = value
         omdbSaveJob?.cancel()
         omdbSaveJob = viewModelScope.launch {
             delay(KEY_SAVE_DEBOUNCE_MS)
-            secretStore.setOmdbKey(value)
-            omdbKeyField.value = null
+            flushOmdbKey()
         }
     }
 
     fun clearTmdbKey() {
         tmdbTest.value = null
         tmdbSaveJob?.cancel()
+        pendingTmdbKey = null
         tmdbKeyField.value = ""
         viewModelScope.launch {
             secretStore.setTmdbKey("")
@@ -131,6 +140,7 @@ class SettingsViewModel @Inject constructor(
     fun clearOmdbKey() {
         omdbTest.value = null
         omdbSaveJob?.cancel()
+        pendingOmdbKey = null
         omdbKeyField.value = ""
         viewModelScope.launch {
             secretStore.setOmdbKey("")
@@ -138,10 +148,48 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun flushTmdbKey() {
+        val value = pendingTmdbKey ?: return
+        pendingTmdbKey = null
+        secretStore.setTmdbKey(value)
+        tmdbKeyField.value = null
+    }
+
+    private suspend fun flushOmdbKey() {
+        val value = pendingOmdbKey ?: return
+        pendingOmdbKey = null
+        secretStore.setOmdbKey(value)
+        omdbKeyField.value = null
+    }
+
+    /**
+     * Writes any debounced key edits to the encrypted store right away
+     * (review M-I). Anything about to read the stored key — the Test
+     * actions here, a scan elsewhere — must see the key as typed, not the
+     * one from before the debounce window.
+     */
+    suspend fun flushPendingKeys() {
+        tmdbSaveJob?.cancel()
+        omdbSaveJob?.cancel()
+        flushTmdbKey()
+        flushOmdbKey()
+    }
+
+    override fun onCleared() {
+        // viewModelScope is cancelled as part of clearing, so the flush
+        // runs on the application scope: leaving this screen inside the
+        // 800 ms debounce window no longer loses the typed key (review M-I).
+        appScope.launch { flushPendingKeys() }
+        super.onCleared()
+    }
+
     fun testTmdbKey() {
         val key = uiState.value.tmdbKey
         if (key.isBlank()) return
         viewModelScope.launch {
+            // Test the key as typed: flush the debounced save first so the
+            // stored key (what a scan reads) matches it (review M-I).
+            flushPendingKeys()
             testingTmdb.value = true
             try {
                 val result = metadataService.testTmdbKey(key)
@@ -161,6 +209,7 @@ class SettingsViewModel @Inject constructor(
         val key = uiState.value.omdbKey
         if (key.isBlank()) return
         viewModelScope.launch {
+            flushPendingKeys()
             testingOmdb.value = true
             try {
                 val result = metadataService.testOmdbKey(key)

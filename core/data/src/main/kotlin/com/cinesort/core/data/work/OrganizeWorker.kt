@@ -19,6 +19,7 @@ import com.cinesort.core.data.repository.SettingsRepository
 import com.cinesort.core.domain.execute.OrganizeExecutor
 import com.cinesort.core.domain.gateway.StorageGateway
 import com.cinesort.core.domain.journal.JournalStore
+import com.cinesort.core.domain.journal.OperationRecord
 import com.cinesort.core.domain.journal.OperationState
 import com.cinesort.core.domain.model.DirRef
 import com.cinesort.core.domain.model.FileRef
@@ -33,6 +34,8 @@ import com.cinesort.core.parser.ParseResult
 import com.cinesort.core.parser.ParseTrace
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 
 /**
@@ -40,8 +43,8 @@ import timber.log.Timber
  *
  * The plan is rebuilt from execution drafts written before the run started,
  * so a process death mid-run loses nothing: drafts plus the journal carry
- * the full state. Leftover `.cinesort-part` files need no dedicated cleanup
- * worker — the SAF gateway removes them when the next scan encounters them.
+ * the full state. Stale `.cinesort-part` leftovers under the destination
+ * root are removed at run start (review L-F); scans never delete files.
  */
 @HiltWorker
 class OrganizeWorker @AssistedInject constructor(
@@ -56,6 +59,7 @@ class OrganizeWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val runId = inputData.getString(KEY_RUN_ID) ?: return Result.failure()
+        closeInterruptedRuns(runId)
         val drafts = draftRepository.draftsFor(runId)
         if (drafts.isEmpty()) {
             Timber.w("organize run %s has no drafts", runId)
@@ -63,6 +67,7 @@ class OrganizeWorker @AssistedInject constructor(
         }
         val destination = libraryRepository.destinationOnce() ?: return Result.failure()
         val destinationRoot = DirRef(destination.uriString, destination.name)
+        cleanupStalePartials(destinationRoot)
 
         // Companions are decoded (and stat'ed through the gateway) before the map:
         // decodeCompanions is suspending, so it cannot run inside List.map.
@@ -145,9 +150,18 @@ class OrganizeWorker @AssistedInject constructor(
         }
 
         createNotificationChannel()
-        setForeground(
-            createForegroundInfo(percent = 0, currentFile = null, total = pendingItems.size),
-        )
+        // Review L-C: foreground promotion can be refused (background-start
+        // restrictions, Android 15 dataSync limits). Losing the promotion
+        // must not lose the run — the worker continues in the background.
+        try {
+            setForeground(
+                createForegroundInfo(percent = 0, currentFile = null, total = pendingItems.size),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "foreground promotion refused; continuing in background")
+        }
 
         val executor = OrganizeExecutor(gateway, journalStore, destinationRoot)
         var lastPercent = -1
@@ -173,6 +187,10 @@ class OrganizeWorker @AssistedInject constructor(
                     )
                 }
             }
+        } catch (e: CancellationException) {
+            // A WorkManager stop/cancellation is not a failure (review §4):
+            // rethrow so the executor's own per-item rethrow is not nullified.
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "organize run %s failed", runId)
             return Result.failure()
@@ -180,7 +198,7 @@ class OrganizeWorker @AssistedInject constructor(
 
         val settings = settingsRepository.current()
         if (settings.downloadPosters) {
-            downloadPosters(pendingItems, destinationRoot)
+            downloadPosters(runId, pendingItems, destinationRoot)
         }
         if (settings.removeEmptyFolders) {
             cleanupEmptySourceFolders(items, settings.treatJunkAsEmpty)
@@ -198,27 +216,120 @@ class OrganizeWorker @AssistedInject constructor(
     }
 
     /**
+     * Journal hygiene (review M-B): [JournalStore.unfinishedRuns] finally gets a
+     * caller. A run whose process died keeps operations in non-final states
+     * forever; when a new run starts, those stale ops of every OTHER unfinished
+     * run are closed as FAILED ("interrupted") so the history never shows
+     * phantom in-progress rows. Final states (DONE / FAILED / SKIPPED / UNDONE)
+     * are never touched, and a cleanup failure never fails the new run.
+     */
+    private suspend fun closeInterruptedRuns(currentRunId: String) {
+        try {
+            for (run in journalStore.unfinishedRuns()) {
+                if (run.id == currentRunId) continue
+                journalStore.operationsOf(run.id)
+                    .filter { it.state in NON_FINAL_STATES }
+                    .forEach { op ->
+                        journalStore.updateOperation(
+                            op.copy(
+                                state = OperationState.FAILED,
+                                failureReason = "interrupted",
+                            ),
+                        )
+                    }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "stale-run journal cleanup failed")
+        }
+    }
+
+    /**
+     * Review L-F: scans no longer delete files, so stale `.cinesort-part`
+     * leftovers from interrupted verified copies are removed here instead —
+     * under the destination root only, the one tree this app writes temp
+     * files into. Best effort: failures are logged and the run continues.
+     */
+    private suspend fun cleanupStalePartials(destinationRoot: DirRef) {
+        try {
+            val queue = ArrayDeque<Pair<DirRef, Int>>()
+            queue.add(destinationRoot to 0)
+            while (queue.isNotEmpty()) {
+                val (dir, depth) = queue.removeFirst()
+                for (child in gateway.listChildren(dir)) {
+                    val ref = child.ref
+                    if (child.isDirectory) {
+                        if (depth < MAX_PARTIAL_CLEANUP_DEPTH && ref is DirRef) {
+                            queue.add(ref to depth + 1)
+                        }
+                    } else if (ref.name.endsWith(PART_SUFFIX)) {
+                        try {
+                            gateway.delete(ref)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.w(e, "stale partial cleanup failed for %s", ref.name)
+                        }
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "stale partial cleanup failed")
+        }
+    }
+
+    /** One folder's poster work: which item owns it and what undo must know. */
+    private data class PosterTarget(
+        val segments: List<String>,
+        val url: String,
+        val item: PlannedItem,
+        val createdDirs: List<String>,
+    )
+
+    /**
      * Optional poster download (owner feature): for every distinct target
      * folder of this run with a matched poster, save `poster.jpg` into it —
      * the movie's own folder, or the series root folder for episodes. Existing
      * posters are kept; failures are logged and never fail the run.
+     *
+     * Review M-A: only items whose journal operations all finished DONE get
+     * a poster — a failed item's folder may not even exist, and a poster must
+     * never be the only trace of a failed move. Each written poster is
+     * journaled as an isPoster operation so Undo deletes it and the
+     * run-created folder can then be removed as empty.
      */
-    private suspend fun downloadPosters(items: List<PlannedItem>, destinationRoot: DirRef) {
-        val byFolder = LinkedHashMap<String, Pair<List<String>, String>>()
+    private suspend fun downloadPosters(
+        runId: String,
+        items: List<PlannedItem>,
+        destinationRoot: DirRef,
+    ) {
+        val opsByItem = journalStore.operationsOf(runId).groupBy { it.itemId }
+        val byFolder = LinkedHashMap<String, PosterTarget>()
         for (item in items) {
+            val itemOps = opsByItem[item.id].orEmpty()
+            if (itemOps.isEmpty() || itemOps.any { it.state != OperationState.DONE }) continue
             val url = item.metadata?.posterUrl ?: continue
             val folderSegments = when (item.type) {
                 ItemType.EPISODE -> item.targetSegments.dropLast(1)
                 else -> item.targetSegments
             }
             if (folderSegments.isEmpty()) continue
-            byFolder.putIfAbsent(folderSegments.joinToString("/"), folderSegments to url)
+            val createdDirs = itemOps
+                .firstOrNull { !it.isCompanion && !it.isPoster }
+                ?.createdDirs
+                .orEmpty()
+            byFolder.putIfAbsent(
+                folderSegments.joinToString("/"),
+                PosterTarget(folderSegments, url, item, createdDirs),
+            )
         }
-        for ((_, folderAndUrl) in byFolder) {
-            val (segments, url) = folderAndUrl
+        for (target in byFolder.values) {
             try {
                 var dir: DirRef? = destinationRoot
-                for (segment in segments) {
+                for (segment in target.segments) {
                     dir = dir?.let { gateway.findChildDir(it, segment) }
                     if (dir == null) break
                 }
@@ -227,10 +338,31 @@ class OrganizeWorker @AssistedInject constructor(
                     !child.isDirectory && child.ref.name.equals(POSTER_FILE_NAME, ignoreCase = true)
                 }
                 if (exists) continue
-                val bytes = PosterDownloader.fetch(url) ?: continue
-                gateway.createFile(folder, POSTER_FILE_NAME, "image/jpeg", bytes)
+                val bytes = PosterDownloader.fetch(target.url) ?: continue
+                val created = gateway.createFile(folder, POSTER_FILE_NAME, "image/jpeg", bytes)
+                journalStore.insertOperation(
+                    OperationRecord(
+                        id = UUID.randomUUID().toString(),
+                        runId = runId,
+                        itemId = target.item.id,
+                        sourceParentId = folder.id,
+                        sourceParentName = folder.name,
+                        sourceFileId = created.id,
+                        fileName = POSTER_FILE_NAME,
+                        finalName = POSTER_FILE_NAME,
+                        destinationParentId = folder.id,
+                        destinationSegments = target.segments,
+                        state = OperationState.DONE,
+                        bytesTotal = bytes.size.toLong(),
+                        bytesDone = bytes.size.toLong(),
+                        isPoster = true,
+                        createdDirs = target.createdDirs,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Timber.w(e, "poster save failed for %s", segments.joinToString("/"))
+                Timber.w(e, "poster save failed for %s", target.segments.joinToString("/"))
             }
         }
     }
@@ -347,7 +479,21 @@ class OrganizeWorker @AssistedInject constructor(
     }
 
     companion object {
+        /** Operation states an interrupted run can be stuck in (review M-B). */
+        val NON_FINAL_STATES = setOf(
+            OperationState.PENDING,
+            OperationState.DIRS_READY,
+            OperationState.MOVING,
+            OperationState.COPYING,
+            OperationState.VERIFIED,
+        )
         const val POSTER_FILE_NAME = "poster.jpg"
+
+        /** Temp-file suffix of verified copies; mirrors the SAF gateway's (review L-F). */
+        const val PART_SUFFIX = ".cinesort-part"
+
+        /** Deepest destination level the stale-partial sweep descends to (review L-F). */
+        const val MAX_PARTIAL_CLEANUP_DEPTH = 6
         const val CHANNEL_ID = "organize"
         const val KEY_RUN_ID = "runId"
         const val KEY_PROGRESS = "progress"

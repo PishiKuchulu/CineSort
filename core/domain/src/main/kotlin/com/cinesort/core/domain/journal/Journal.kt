@@ -10,6 +10,10 @@ enum class OperationState {
     DONE,
     FAILED,
     SKIPPED,
+
+    /** Restored by a successful undo (review M-C); persisted via the state name,
+     *  so no schema change is needed. */
+    UNDONE,
 }
 
 data class OperationRecord(
@@ -32,6 +36,9 @@ data class OperationRecord(
     val bytesTotal: Long = 0,
     val bytesDone: Long = 0,
     val isCompanion: Boolean = false,
+    /** A downloaded poster file living in the item's destination folder
+     *  (review M-A); undo deletes it instead of moving it back. */
+    val isPoster: Boolean = false,
     val failureReason: String? = null,
     /** Directories this run created for this operation, relative segments, deepest last. */
     val createdDirs: List<String> = emptyList(),

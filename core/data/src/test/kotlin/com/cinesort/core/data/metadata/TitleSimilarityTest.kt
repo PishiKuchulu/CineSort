@@ -23,6 +23,25 @@ class TitleSimilarityTest {
     }
 
     @Test
+    fun subsetMatchScoresBelowExactInEitherDirection() {
+        // Review M-D: query ⊂ candidate used to score a perfect 1.0, letting a
+        // more popular superset title ("Lucky Hank") beat the exact "Lucky".
+        assertEquals(
+            TitleSimilarity.SUBSET_SCORE_CAP,
+            TitleSimilarity.similarity("Lucky", "Lucky Hank"),
+            0.0001,
+        )
+        assertTrue(TitleSimilarity.similarity("Lucky", "Lucky Hank") < 1.0)
+        assertTrue(TitleSimilarity.similarity("Lucky Hank", "Lucky") < 1.0)
+        // The deliberate subset acceptance is kept, just scored below exact.
+        assertEquals(
+            TitleSimilarity.SUBSET_SCORE_CAP,
+            TitleSimilarity.similarity("Matrix", "The Matrix"),
+            0.0001,
+        )
+    }
+
+    @Test
     fun moreSpecificQueryDoesNotPerfectlyMatchSubsetCandidate() {
         // Review H9 regression: candidate tokens strictly inside the query's must
         // not score a perfect match.
