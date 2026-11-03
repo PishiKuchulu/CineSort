@@ -90,9 +90,9 @@ fun RunScreen(
     LaunchedEffect(state.workState) {
         when (state.workState) {
             WorkInfo.State.SUCCEEDED ->
-                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             WorkInfo.State.FAILED, WorkInfo.State.CANCELLED ->
-                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             else -> Unit
         }
     }

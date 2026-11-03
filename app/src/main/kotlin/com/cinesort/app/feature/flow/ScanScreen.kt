@@ -75,7 +75,7 @@ fun ScanScreen(
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(session.error) {
         if (session.error != null) {
-            haptics.performHapticFeedback(HapticFeedbackType.Reject)
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 

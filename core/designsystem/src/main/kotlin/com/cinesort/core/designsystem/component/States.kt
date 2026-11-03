@@ -191,7 +191,7 @@ fun ConfirmDialog(
             } else {
                 TextButton(
                     onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onConfirm()
                     },
                 ) {
