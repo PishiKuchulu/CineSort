@@ -184,7 +184,7 @@ class SettingsViewModel @Inject constructor(
     /** Edits a saved correction's title/year in place (audit A.1-5). */
     fun updateOverride(id: Long, title: String, year: String) {
         viewModelScope.launch {
-            libraryRepository.updateOverride(id, title.trim(), year.trim())
+            libraryRepository.updateOverride(id, title.trim(), year.trim().toIntOrNull())
         }
     }
 

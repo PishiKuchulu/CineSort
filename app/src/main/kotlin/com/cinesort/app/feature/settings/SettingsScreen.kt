@@ -191,7 +191,7 @@ fun SettingsScreen(
                     // No in-card title: the section header above already
                     // names the section (granular audit 1-7 — the language
                     // card used to repeat its own name inside).
-                    FlowFlowRow(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -255,7 +255,7 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     Spacer(Modifier.height(8.dp))
-                    FlowFlowRow(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -619,6 +619,10 @@ fun SettingsScreen(
                         ),
                         style = MaterialTheme.typography.bodyLarge,
                     )
+                    val minFileAgeDescription = stringResource(
+                        R.string.settings_min_file_age,
+                        settings.minFileAgeSeconds,
+                    )
                     Slider(
                         value = settings.minFileAgeSeconds.toFloat(),
                         onValueChange = { value ->
@@ -627,10 +631,7 @@ fun SettingsScreen(
                         valueRange = 0f..600f,
                         steps = 59,
                         modifier = Modifier.semantics {
-                            stateDescription = stringResource(
-                                R.string.settings_min_file_age,
-                                settings.minFileAgeSeconds,
-                            )
+                            stateDescription = minFileAgeDescription
                         },
                     )
                     SwitchRow(
@@ -1055,7 +1056,7 @@ fun SettingsScreen(
             mutableStateOf(override.correctedTitle)
         }
         var editYear by remember(override.id) {
-            mutableStateOf(override.correctedYear ?: "")
+            mutableStateOf(override.correctedYear?.toString() ?: "")
         }
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { editingOverride = null },

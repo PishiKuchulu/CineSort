@@ -238,7 +238,7 @@ fun PreviewScreen(
                 }
                 if (session.metadataUnavailable &&
                     state.settings.metadataUnavailable ==
-                    com.cinesort.core.data.settings.MetadataUnavailableMode.CONTINUE &&
+                    com.cinesort.core.data.settings.MetadataUnavailableBehavior.CONTINUE &&
                     (
                         state.settings.movieAddGenres || state.settings.movieAddRating ||
                             state.settings.seriesAddGenres || state.settings.seriesAddRating
@@ -818,7 +818,7 @@ private fun PreviewRow(
                 // What the file was matched as (audit A.3-8): the row used
                 // to show the provider's rating but never the matched
                 // title the folder name will be built from.
-                item.matchedTitle?.takeIf { it.isNotBlank() }?.let { matched ->
+                item.metadata?.matchedTitle?.takeIf { it.isNotBlank() }?.let { matched ->
                     Spacer(Modifier.height(4.dp))
                     LtrText(
                         text = stringResource(R.string.preview_matched_as, matched),

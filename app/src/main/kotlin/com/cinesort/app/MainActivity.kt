@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
             // theme/language before the persisted values arrived — a
             // visible flash on cold start. Until the first real emission,
             // render only a themed blank surface.
-            val settings by settingsRepository.settings.collectAsStateWithLifecycle(initial = null)
+            val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
             val current = settings
             if (current == null) {
                 CineSortTheme(darkTheme = isSystemInDarkTheme()) {

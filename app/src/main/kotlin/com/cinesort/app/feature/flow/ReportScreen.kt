@@ -239,16 +239,17 @@ fun ReportScreen(
                                 text = stringResource(R.string.report_failures_title),
                                 style = MaterialTheme.typography.titleMedium,
                             )
+                            val failuresToggleDescription = stringResource(
+                                if (failuresExpanded) {
+                                    R.string.preview_group_expanded
+                                } else {
+                                    R.string.preview_group_collapsed
+                                },
+                            )
                             IconButton(
                                 onClick = { failuresExpanded = !failuresExpanded },
                                 modifier = Modifier.semantics {
-                                    stateDescription = stringResource(
-                                        if (failuresExpanded) {
-                                            R.string.preview_group_expanded
-                                        } else {
-                                            R.string.preview_group_collapsed
-                                        },
-                                    )
+                                    stateDescription = failuresToggleDescription
                                 },
                             ) {
                                 Icon(

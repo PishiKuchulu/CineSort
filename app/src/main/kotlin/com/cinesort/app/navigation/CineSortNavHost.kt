@@ -81,7 +81,7 @@ fun CineSortNavHost(
     // The on-launch check is opt-out (review M-E): wait for the persisted
     // settings (null until loaded) so a disabled preference can never race
     // a check in before it is read. Manual checks in Settings are unaffected.
-    val settings by settingsRepository.settings.collectAsStateWithLifecycle(initial = null)
+    val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
     val autoCheckUpdates = settings?.autoCheckUpdates
     LaunchedEffect(autoCheckUpdates) {
         if (autoCheckUpdates == true) {
