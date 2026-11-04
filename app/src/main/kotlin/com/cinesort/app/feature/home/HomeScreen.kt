@@ -1,6 +1,8 @@
 package com.cinesort.app.feature.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,17 +15,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -116,6 +118,12 @@ private fun gregorianToJalali(year: Int, month: Int, day: Int): Triple<Int, Int,
     return Triple(jalaliYear, 7 + remaining / 30, remaining % 30 + 1)
 }
 
+/** Formats a run's wall-clock time (HH:mm), honoring the Persian-digits setting. */
+fun formatRunTime(epochMillis: Long, persianDigits: Boolean): String {
+    val raw = SimpleDateFormat("HH:mm", Locale.ROOT).format(Date(epochMillis))
+    return if (persianDigits) raw.toPersianDigits() else raw
+}
+
 /** Formats a run timestamp, honoring the Jalali-dates and Persian-digits settings. */
 fun formatRunDate(epochMillis: Long, jalali: Boolean, persianDigits: Boolean): String {
     val raw = if (jalali) {
@@ -139,6 +147,7 @@ fun HomeScreen(
     onScanClick: () -> Unit,
     onOpenSources: () -> Unit,
     onOpenSettings: () -> Unit,
+    onCompleteSetup: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -164,7 +173,7 @@ fun HomeScreen(
     LaunchedEffect(Unit) { viewModel.refreshLastRun() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.home_title)) }) },
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_home)) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
@@ -192,27 +201,40 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(18.dp))
-                        Button(
-                            onClick = onScanClick,
-                            enabled = state.canScan,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.home_scan_button),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        if (!state.canScan) {
-                            // Why the main action is greyed out, right next
-                            // to the button itself (audit 1-5) — not only
-                            // in the checklist further down.
+                        // Single source of truth (UI/UX wave 1.1.0): the
+                        // hero action follows canScan — never a disabled
+                        // grey button. When setup is incomplete the button
+                        // itself is the way into the wizard.
+                        if (state.canScan) {
+                            Button(
+                                onClick = onScanClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.home_scan_button),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = onCompleteSetup,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.home_complete_setup),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
                             Spacer(Modifier.height(10.dp))
                             Text(
                                 text = stringResource(R.string.home_scan_needs_setup),
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.clickable(onClick = onCompleteSetup),
                             )
                         }
                         if (state.canScan && state.anySourceInvalid) {
@@ -237,6 +259,7 @@ fun HomeScreen(
             // itself once everything is done.
             val steps = listOf(
                 SetupStep(
+                    number = 1,
                     done = state.destination != null && state.destinationValid,
                     text = when {
                         state.destination == null ->
@@ -248,6 +271,7 @@ fun HomeScreen(
                     onClick = onOpenSources,
                 ),
                 SetupStep(
+                    number = 2,
                     done = state.sourcesCount > 0 && !state.anySourceInvalid,
                     text = when {
                         state.anySourceInvalid ->
@@ -259,7 +283,9 @@ fun HomeScreen(
                     onClick = onOpenSources,
                 ),
                 SetupStep(
+                    number = 3,
                     done = state.hasApiKey,
+                    optional = true,
                     text = if (state.hasApiKey) {
                         stringResource(R.string.home_setup_api_done)
                     } else {
@@ -289,61 +315,95 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.outlineVariant,
                                 )
                             }
-                            SetupStepRow(step)
+                            SetupStepRow(step, persianDigits)
                         }
                         Spacer(Modifier.height(8.dp))
                     }
                 }
             }
 
-            // Stat tiles
+            // Stat tiles (UI/UX wave 1.1.0): before setup there is no
+            // "0 source folders" tile and no "Unknown" — the destination
+            // tile itself becomes the call to action.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                StatTile(
-                    value = state.sourcesCount.toString()
-                        .let { if (persianDigits) it.toPersianDigits() else it },
-                    label = stringResource(R.string.home_stat_sources),
-                    modifier = Modifier.weight(1f),
-                )
-                StatTile(
-                    value = formatBytes(
-                        state.destinationFreeBytes,
-                        persianDigits,
-                        stringResource(R.string.home_free_unknown),
-                    ),
-                    label = stringResource(R.string.home_stat_destination_free),
-                    modifier = Modifier.weight(1f),
-                )
+                if (state.sourcesCount > 0) {
+                    StatTile(
+                        value = state.sourcesCount.toString()
+                            .let { if (persianDigits) it.toPersianDigits() else it },
+                        label = stringResource(R.string.home_stat_sources),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (state.destination == null) {
+                    StatTile(
+                        value = stringResource(R.string.common_not_set),
+                        label = stringResource(R.string.home_stat_destination_choose),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenSources,
+                    )
+                } else {
+                    StatTile(
+                        value = formatBytes(
+                            state.destinationFreeBytes,
+                            persianDigits,
+                            stringResource(R.string.home_free_unknown),
+                        ),
+                        label = stringResource(R.string.home_stat_destination_free),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
-            // Naming quick chips (persisted, same settings as the Settings screen)
-            Text(
-                text = stringResource(R.string.home_naming_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilterChip(
-                    selected = state.settings.movieAddGenres,
-                    onClick = {
-                        viewModel.onGenresChipChanged(!state.settings.movieAddGenres)
-                    },
-                    label = { Text(stringResource(R.string.home_genres)) },
-                )
-                FilterChip(
-                    selected = state.settings.movieAddRating,
-                    onClick = {
-                        viewModel.onRatingChipChanged(!state.settings.movieAddRating)
-                    },
-                    label = { Text(stringResource(R.string.home_rating)) },
+            // Naming lives only in Settings (UI/UX wave 1.1.0): Home shows
+            // a one-line summary that links there instead of a second,
+            // competing set of controls.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenSettings)
+                    .semantics(mergeDescendants = true) {}
+                    .heightIn(min = 52.dp)
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.home_naming_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.home_naming_state,
+                            stringResource(
+                                if (state.settings.movieAddGenres) {
+                                    R.string.common_on
+                                } else {
+                                    R.string.common_off
+                                },
+                            ),
+                            stringResource(
+                                if (state.settings.movieAddRating) {
+                                    R.string.common_on
+                                } else {
+                                    R.string.common_off
+                                },
+                            ),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Text(
-                text = stringResource(R.string.home_naming_synced_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
 
             // Last run card
             Text(
@@ -363,6 +423,29 @@ fun HomeScreen(
                         Text(
                             text = stringResource(R.string.home_last_run_none),
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (lastRun.finishedAt == null && !lastRun.undone) {
+                        // A run still in progress reads as progress, not
+                        // as a finished result with an Undo (UI/UX wave).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Text(
+                                text = stringResource(R.string.history_status_running),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = formatRunDate(
+                                lastRun.startedAt,
+                                state.settings.jalaliDates,
+                                persianDigits,
+                            ) + " · " + formatRunTime(lastRun.startedAt, persianDigits),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
@@ -414,13 +497,15 @@ fun HomeScreen(
 
 /** One row of the Home setup checklist. */
 private data class SetupStep(
+    val number: Int,
     val done: Boolean,
     val text: String,
     val onClick: () -> Unit,
+    val optional: Boolean = false,
 )
 
 @Composable
-private fun SetupStepRow(step: SetupStep) {
+private fun SetupStepRow(step: SetupStep, persianDigits: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,16 +518,37 @@ private fun SetupStepRow(step: SetupStep) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            imageVector = if (step.done) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
-            contentDescription = null,
-            tint = if (step.done) {
-                MaterialTheme.colorScheme.primary
+        // Numbered badge instead of a radio-like hollow circle (UI/UX
+        // wave 1.1.0): pending steps show their number, done steps a tick.
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .background(
+                    color = if (step.done) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (step.done) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(16.dp),
+                )
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(22.dp),
-        )
+                Text(
+                    text = step.number.toString()
+                        .let { if (persianDigits) it.toPersianDigits() else it },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Text(
             text = step.text,
             style = MaterialTheme.typography.bodyMedium,
@@ -453,6 +559,19 @@ private fun SetupStepRow(step: SetupStep) {
             },
             modifier = Modifier.weight(1f),
         )
+        if (step.optional && !step.done) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Text(
+                    text = stringResource(R.string.home_setup_optional),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
         if (!step.done) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,

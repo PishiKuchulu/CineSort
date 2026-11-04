@@ -15,6 +15,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,6 +37,7 @@ fun EmptyState(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     compact: Boolean = false,
+    actionOutlined: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -65,7 +67,13 @@ fun EmptyState(
         )
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
-            Button(onClick = onAction) { Text(actionLabel) }
+            // One primary action per screen (UI/UX wave 1.1.0): a step that
+            // is not the current one renders its action outlined instead.
+            if (actionOutlined) {
+                OutlinedButton(onClick = onAction) { Text(actionLabel) }
+            } else {
+                Button(onClick = onAction) { Text(actionLabel) }
+            }
         }
     }
 }

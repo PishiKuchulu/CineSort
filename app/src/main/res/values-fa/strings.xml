@@ -17,6 +17,8 @@
     <string name="common_skip">رد کردن</string>
     <string name="common_change">تغییر</string>
     <string name="common_not_set">تنظیم نشده</string>
+    <string name="common_on">روشن</string>
+    <string name="common_off">خاموش</string>
     <string name="common_more_options">گزینه‌های بیشتر</string>
 
     <!-- Home -->
@@ -27,7 +29,11 @@
     <string name="home_scan_disabled_no_sources">برای شروع اسکن، دست‌کم یک پوشه‌ی مرجع اضافه کنید.</string>
     <string name="home_stat_sources">پوشه‌های مرجع</string>
     <string name="home_stat_destination_free">فضای خالی مقصد</string>
-    <string name="home_free_unknown">نامشخص</string>
+    <string name="home_free_unknown">تنظیم نشده</string>
+    <string name="home_complete_setup">تکمیل راه‌اندازی</string>
+    <string name="home_setup_optional">اختیاری</string>
+    <string name="home_naming_state">ژانرها: %1$s · امتیاز: %2$s</string>
+    <string name="home_stat_destination_choose">یک مقصد انتخاب کنید</string>
     <string name="home_naming_title">گزینه‌های نام‌گذاری</string>
     <string name="home_genres">ژانر</string>
     <string name="home_rating">امتیاز</string>
@@ -76,7 +82,8 @@
     <!-- History -->
     <string name="history_title">تاریخچه</string>
     <string name="history_empty_title">هنوز اجرایی نیست</string>
-    <string name="history_empty_message">اجراهای تمام‌شده‌ی مرتب‌سازی اینجا فهرست می‌شوند و اجراهای واجد شرایط را می‌شود بازگردانی کرد.</string>
+    <string name="history_empty_message">اجراهای تمام‌شده اینجا فهرست می‌شوند. هر اجرا تاریخ و ساعتش، تعداد فایل‌های جابه‌جاشده و تا وقتی ممکن باشد گزینه‌ی بازگردانی را نشان می‌دهد.</string>
+    <string name="history_complete_setup">اول راه‌اندازی را کامل کنید</string>
 
     <!-- Flow placeholder screens -->
     <string name="scan_title">اسکن</string>
@@ -105,6 +112,7 @@
     <string name="onboarding_done_title">همه‌چیز آماده است</string>
     <string name="onboarding_done_message">حالا می‌توانید از صفحه‌ی خانه، پوشه‌های مرجع را اسکن و کتابخانه‌تان را مرتب کنید.</string>
     <string name="onboarding_finish">شروع استفاده از CineSort</string>
+    <string name="onboarding_setup_later">بعداً راه‌اندازی می‌کنم</string>
 
     <!-- Settings -->
     <string name="settings_title">تنظیمات</string>

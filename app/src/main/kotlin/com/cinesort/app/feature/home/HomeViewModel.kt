@@ -140,26 +140,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // The chips are labelled generically ("Genres"/"Ratings") but used to
-    // write only the movie flags (audit B.2): with series flags defaulting
-    // on, tapping a chip off appeared to do nothing. The chips now drive
-    // BOTH pairs; Settings still offers the per-kind split.
-    fun onGenresChipChanged(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.update {
-                it.copy(movieAddGenres = enabled, seriesAddGenres = enabled)
-            }
-        }
-    }
-
-    fun onRatingChipChanged(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.update {
-                it.copy(movieAddRating = enabled, seriesAddRating = enabled)
-            }
-        }
-    }
-
     /** Undo of the most recent run via the domain [UndoExecutor]. */
     fun onUndoLastRun() {
         val state = uiState.value

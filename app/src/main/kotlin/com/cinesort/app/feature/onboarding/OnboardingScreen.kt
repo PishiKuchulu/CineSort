@@ -53,15 +53,18 @@ import com.cinesort.core.designsystem.component.ApiKeyField
 import com.cinesort.core.designsystem.component.ApiKeyStatusKind
 import com.cinesort.core.designsystem.component.FilmPerforationStrip
 import com.cinesort.core.designsystem.component.StageStepper
+import com.cinesort.core.designsystem.component.toPersianDigits
 import com.cinesort.core.designsystem.theme.LocalCineSortTokens
 
 private const val TMDB_HELP_URL = "https://www.themoviedb.org/settings/api"
 private const val OMDB_HELP_URL = "https://www.omdbapi.com/apikey.aspx"
-private const val LAST_STEP = 4
+private const val LAST_STEP = 3
 
 /**
- * First-launch onboarding (spec 10.4 screen 1):
- * Welcome -> Destination -> Sources -> API keys (optional) -> Done.
+ * Setup wizard (UI/UX wave 1.1.0): a short Welcome (language) followed by
+ * exactly three setup steps — 1 Destination, 2 Sources, 3 API keys
+ * (optional, skippable) — then straight to Home. The same wizard re-opens
+ * from the Home/History "Complete setup" actions when setup is incomplete.
  */
 @Composable
 fun OnboardingScreen(
@@ -97,27 +100,44 @@ fun OnboardingScreen(
         ) {
             FilmPerforationStrip()
             Spacer(Modifier.height(16.dp))
+            // The stepper and the "Step X of 3" label cover only the three
+            // setup steps; Welcome is an unnumbered intro.
+            val setupStageLabels = listOf(
+                stringResource(R.string.sources_destination_title),
+                stringResource(R.string.tab_sources),
+                stringResource(R.string.settings_metadata),
+            )
             val stageStateTemplate = stringResource(R.string.scan_stage_state)
-            StageStepper(
-                stages = listOf(
-                    stringResource(R.string.onboarding_welcome_title),
-                    stringResource(R.string.sources_destination_title),
-                    stringResource(R.string.tab_sources),
-                    stringResource(R.string.settings_metadata),
-                    stringResource(R.string.onboarding_done_title),
-                ),
-                currentIndex = step,
-                stageDescription = { index, label ->
-                    String.format(
+            if (step >= 1) {
+                StageStepper(
+                    stages = setupStageLabels,
+                    currentIndex = step - 1,
+                    stageDescription = { index, label ->
+                        String.format(
+                            java.util.Locale.ROOT,
+                            stageStateTemplate,
+                            index + 1,
+                            LAST_STEP,
+                            label,
+                        )
+                    },
+                    persianDigits = state.languageCode == "fa",
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = String.format(
                         java.util.Locale.ROOT,
                         stageStateTemplate,
-                        index + 1,
-                        LAST_STEP + 1,
-                        label,
-                    )
-                },
-                persianDigits = state.languageCode == "fa",
-            )
+                        step,
+                        LAST_STEP,
+                        setupStageLabels[step - 1],
+                    ).let {
+                        if (state.languageCode == "fa") it.toPersianDigits() else it
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(24.dp))
             AnimatedContent(
                 targetState = step,
@@ -317,16 +337,6 @@ fun OnboardingScreen(
                             ),
                         )
                     }
-                    else -> {
-                        Text(
-                            text = stringResource(R.string.onboarding_done_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
-                        Text(
-                            text = stringResource(R.string.onboarding_done_message),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
                 }
             }
             }
@@ -339,20 +349,45 @@ fun OnboardingScreen(
                     OutlinedButton(onClick = { step-- }) {
                         Text(stringResource(R.string.common_back))
                     }
+                } else {
+                    // The escape hatch lives on Welcome (UI/UX wave
+                    // 1.1.0): the required steps themselves carry no
+                    // Skip; Home's "Complete setup" re-opens the wizard.
+                    TextButton(
+                        onClick = {
+                            OnboardingFlag.markDone(context)
+                            onFinished()
+                        },
+                    ) {
+                        Text(stringResource(R.string.onboarding_setup_later))
+                    }
                 }
                 // Weight spacer replaces the old 1.dp alignment hack
                 // (audit 1-4).
                 Spacer(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (step in 1..3) {
-                        TextButton(onClick = { step++ }) {
+                    if (step == LAST_STEP) {
+                        // Step 3 is optional: Skip and Finish both end
+                        // the wizard and land on Home.
+                        TextButton(
+                            onClick = {
+                                OnboardingFlag.markDone(context)
+                                onFinished()
+                            },
+                        ) {
                             Text(stringResource(R.string.common_skip))
                         }
-                    }
-                    if (step < LAST_STEP) {
+                        Button(
+                            onClick = {
+                                OnboardingFlag.markDone(context)
+                                onFinished()
+                            },
+                        ) {
+                            Text(stringResource(R.string.onboarding_finish))
+                        }
+                    } else {
                         // Next is gated on the step's own requirement
-                        // (audit 1-4); Skip stays as the explicit,
-                        // labeled bypass for steps 1-2.
+                        // (audit 1-4).
                         val nextEnabled = when (step) {
                             1 -> state.destination != null
                             2 -> state.sourcesCount > 0
@@ -363,15 +398,6 @@ fun OnboardingScreen(
                             enabled = nextEnabled,
                         ) {
                             Text(stringResource(R.string.common_next))
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                OnboardingFlag.markDone(context)
-                                onFinished()
-                            },
-                        ) {
-                            Text(stringResource(R.string.onboarding_finish))
                         }
                     }
                 }

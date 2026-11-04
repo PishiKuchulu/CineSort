@@ -1,5 +1,6 @@
 package com.cinesort.core.designsystem.component
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -214,15 +215,20 @@ fun SourceCard(
     }
 }
 
-/** Compact statistic tile for the Home dashboard. */
+/** Compact statistic tile for the Home dashboard; tappable when [onClick] is set. */
 @Composable
 fun StatTile(
     value: String,
     label: String,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     Card(
-        modifier = modifier,
+        modifier = if (onClick != null) {
+            modifier.clickable(onClick = onClick)
+        } else {
+            modifier
+        },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = MaterialTheme.shapes.medium,
     ) {

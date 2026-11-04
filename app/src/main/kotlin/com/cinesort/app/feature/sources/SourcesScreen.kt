@@ -1,15 +1,22 @@
 package com.cinesort.app.feature.sources
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
@@ -29,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -107,7 +115,7 @@ fun SourcesScreen(
     var pendingClearDestination by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.sources_title)) }) },
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_sources)) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
@@ -118,13 +126,21 @@ fun SourcesScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Text(
-                    text = stringResource(R.string.sources_destination_title),
-                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                StepHeader(
+                    number = 1,
+                    title = stringResource(R.string.sources_destination_title),
                 )
             }
             item {
                 val destination = state.destination
+                // The current required step is highlighted with the accent
+                // border (UI/UX wave 1.1.0): Step 1 while no destination
+                // is chosen, Step 2 afterwards.
+                val stepHighlight = Modifier.border(
+                    width = 2.dp,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                )
                 if (destination == null) {
                     EmptyState(
                         compact = true,
@@ -133,6 +149,7 @@ fun SourcesScreen(
                         message = stringResource(R.string.sources_no_destination_message),
                         actionLabel = stringResource(R.string.sources_pick_destination),
                         onAction = { destinationPicker.launch(null) },
+                        modifier = stepHighlight,
                     )
                 } else {
                     DestinationCard(
@@ -168,20 +185,35 @@ fun SourcesScreen(
             }
 
             item {
-                Text(
-                    text = stringResource(R.string.tab_sources),
-                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                StepHeader(
+                    number = 2,
+                    title = stringResource(R.string.tab_sources),
                 )
             }
             if (state.sources.isEmpty()) {
                 item {
                     EmptyState(
                         compact = true,
-                        icon = Icons.Filled.FolderOpen,
+                        icon = Icons.Filled.Folder,
                         title = stringResource(R.string.sources_empty_title),
                         message = stringResource(R.string.sources_empty_message),
                         actionLabel = stringResource(R.string.sources_add_source),
                         onAction = { sourcePicker.launch(null) },
+                        // Step 2 is current only once a destination
+                        // exists; before that its action stays secondary
+                        // so the screen has exactly one primary button.
+                        actionOutlined = state.destination == null,
+                        modifier = if (state.destination != null) {
+                            Modifier.border(
+                                width = 2.dp,
+                                color = androidx.compose.material3.MaterialTheme
+                                    .colorScheme.primary,
+                                shape = androidx.compose.foundation.shape
+                                    .RoundedCornerShape(16.dp),
+                            )
+                        } else {
+                            Modifier
+                        },
                     )
                 }
             } else {
@@ -275,6 +307,35 @@ fun SourcesScreen(
                 pendingClearDestination = false
             },
             onDismiss = { pendingClearDestination = false },
+        )
+    }
+}
+
+/** Numbered section header for the two-step Sources flow (UI/UX wave 1.1.0). */
+@Composable
+private fun StepHeader(number: Int, title: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .background(
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number.toString(),
+                style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+        Text(
+            text = title,
+            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
         )
     }
 }

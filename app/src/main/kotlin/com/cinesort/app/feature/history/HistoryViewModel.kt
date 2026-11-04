@@ -41,6 +41,8 @@ data class HistoryUiState(
     val undoingRunId: String? = null,
     val isLoading: Boolean = true,
     val hasMore: Boolean = false,
+    /** Same central readiness flag as Home (UI/UX wave 1.1.0). */
+    val canScan: Boolean = false,
 )
 
 @HiltViewModel
@@ -76,6 +78,12 @@ class HistoryViewModel @Inject constructor(
             isLoading = loading,
         )
     }.combine(hasMore) { state, more -> state.copy(hasMore = more) }
+        .combine(
+            combine(
+                libraryRepository.destination,
+                libraryRepository.sources,
+            ) { destination, sources -> destination != null && sources.isNotEmpty() },
+        ) { state, ready -> state.copy(canScan = ready) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),

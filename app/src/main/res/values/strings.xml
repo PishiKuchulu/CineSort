@@ -17,6 +17,8 @@
     <string name="common_skip">Skip</string>
     <string name="common_change">Change</string>
     <string name="common_not_set">Not set</string>
+    <string name="common_on">On</string>
+    <string name="common_off">Off</string>
     <string name="common_more_options">More options</string>
 
     <!-- Home -->
@@ -27,7 +29,11 @@
     <string name="home_scan_disabled_no_sources">Add at least one source folder to start scanning.</string>
     <string name="home_stat_sources">Source folders</string>
     <string name="home_stat_destination_free">Destination free space</string>
-    <string name="home_free_unknown">Unknown</string>
+    <string name="home_free_unknown">Not set</string>
+    <string name="home_complete_setup">Complete setup</string>
+    <string name="home_setup_optional">Optional</string>
+    <string name="home_naming_state">Genres: %1$s · Rating: %2$s</string>
+    <string name="home_stat_destination_choose">Choose a destination</string>
     <string name="home_naming_title">Naming options</string>
     <string name="home_genres">Genres</string>
     <string name="home_rating">Rating</string>
@@ -53,7 +59,7 @@
     <string name="home_warning_no_api_key">No API key is set, so genres and ratings stay off. You can add keys in Settings.</string>
 
     <!-- Sources -->
-    <string name="sources_title">Source folders</string>
+    <string name="sources_title">Sources</string>
     <string name="sources_destination_title">Destination</string>
     <string name="sources_free_space">Free space</string>
     <string name="sources_status_ok">OK</string>
@@ -76,7 +82,8 @@
     <!-- History -->
     <string name="history_title">History</string>
     <string name="history_empty_title">No runs yet</string>
-    <string name="history_empty_message">Finished organize runs will be listed here, and eligible runs can be undone.</string>
+    <string name="history_empty_message">Finished runs will be listed here. Each run shows its date and time, how many files were moved, and offers Undo while it is still possible.</string>
+    <string name="history_complete_setup">Complete setup first</string>
 
     <!-- Flow placeholder screens (replaced by the flow implementation) -->
     <string name="scan_title">Scan</string>
@@ -105,6 +112,7 @@
     <string name="onboarding_done_title">All set</string>
     <string name="onboarding_done_message">You can now scan your sources and organize your library from the Home screen.</string>
     <string name="onboarding_finish">Start using CineSort</string>
+    <string name="onboarding_setup_later">Set up later</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

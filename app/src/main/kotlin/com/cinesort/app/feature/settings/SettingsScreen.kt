@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
@@ -100,6 +101,7 @@ private const val OMDB_HELP_URL = "https://www.omdbapi.com/apikey.aspx"
 private fun SettingsSection(
     title: String,
     initiallyExpanded: Boolean = false,
+    summary: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
@@ -130,20 +132,31 @@ private fun SettingsSection(
                     .fillMaxWidth()
                     .clickable { expanded = !expanded }
                     .semantics { stateDescription = stateLabel }
-                    .padding(horizontal = 24.dp, vertical = 22.dp),
+                    // Denser header (UI/UX wave 1.1.0): the current value
+                    // shows as a summary line, so state is visible without
+                    // expanding the section.
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    if (summary != null) {
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Icon(
                     imageVector = Icons.Filled.ExpandMore,
                     contentDescription = toggleLabel,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(24.dp)
                         .rotate(chevronRotation),
                 )
             }
@@ -210,7 +223,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // 0. Storage recovery notice (section-4 audit): one-time and
             // dismissible; appears only when a store failed to read and
@@ -255,7 +268,17 @@ fun SettingsScreen(
             }
             // 1. Language
             item {
-                SettingsSection(title = stringResource(R.string.settings_language), initiallyExpanded = true) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_language),
+                    initiallyExpanded = true,
+                    summary = stringResource(
+                        if ((settings.languageCode ?: "en") == "fa") {
+                            R.string.settings_language_fa
+                        } else {
+                            R.string.settings_language_en
+                        },
+                    ),
+                ) {
                     // No in-card title: the section header above already
                     // names the section (granular audit 1-7 — the language
                     // card used to repeat its own name inside).
@@ -316,7 +339,16 @@ fun SettingsScreen(
                 }
             }
             item {
-                SettingsSection(title = stringResource(R.string.settings_section_appearance)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_section_appearance),
+                    summary = stringResource(
+                        when (settings.themeMode) {
+                            ThemeMode.DARK -> R.string.settings_theme_dark
+                            ThemeMode.LIGHT -> R.string.settings_theme_light
+                            ThemeMode.SYSTEM -> R.string.settings_theme_system
+                        },
+                    ),
+                ) {
                     Text(
                         text = stringResource(R.string.settings_theme),
                         style = MaterialTheme.typography.bodyLarge,
@@ -367,29 +399,68 @@ fun SettingsScreen(
                 }
             }
 
-            // 2. Folders
+            // 2. Folders — a plain link row, not a section (UI/UX wave
+            // 1.1.0): the Sources tab is the single place that manages
+            // folders.
             item {
-                SettingsSection(title = stringResource(R.string.settings_folders)) {
-                    Text(
-                        text = stringResource(R.string.settings_folders_destination),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        text = state.destinationName
-                            ?: stringResource(R.string.common_not_set),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = onOpenSources) {
-                        Text(stringResource(R.string.settings_folders_manage))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onOpenSources)
+                            .semantics(mergeDescendants = true) {}
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_folders),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_folders_manage),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
             }
 
             // 3. Naming
             item {
-                SettingsSection(title = stringResource(R.string.settings_naming)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_naming),
+                    summary = stringResource(
+                        R.string.home_naming_state,
+                        stringResource(
+                            if (settings.movieAddGenres) {
+                                R.string.common_on
+                            } else {
+                                R.string.common_off
+                            },
+                        ),
+                        stringResource(
+                            if (settings.movieAddRating) {
+                                R.string.common_on
+                            } else {
+                                R.string.common_off
+                            },
+                        ),
+                    ),
+                ) {
                     Text(
                         text = stringResource(R.string.preview_filter_movies),
                         style = MaterialTheme.typography.titleSmall,
@@ -502,7 +573,14 @@ fun SettingsScreen(
 
             // 4. API keys
             item {
-                SettingsSection(title = stringResource(R.string.settings_section_api_keys)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_section_api_keys),
+                    summary = if (state.tmdbKey.isBlank() && state.omdbKey.isBlank()) {
+                        stringResource(R.string.common_not_set)
+                    } else {
+                        "••••••••"
+                    },
+                ) {
                     ApiKeyField(
                         label = stringResource(R.string.settings_tmdb_key),
                         value = state.tmdbKey,
@@ -561,7 +639,16 @@ fun SettingsScreen(
                 }
             }
             item {
-                SettingsSection(title = stringResource(R.string.settings_metadata)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_metadata),
+                    summary = stringResource(
+                        if (settings.ratingSource == RatingSourcePreference.IMDB_ONLY) {
+                            R.string.settings_rating_source_imdb_only
+                        } else {
+                            R.string.settings_rating_source_any
+                        },
+                    ),
+                ) {
                     Spacer(Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.settings_rating_source),
@@ -668,7 +755,16 @@ fun SettingsScreen(
 
             // 5. Safety & behavior
             item {
-                SettingsSection(title = stringResource(R.string.settings_safety)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_safety),
+                    summary = stringResource(
+                        when (settings.conflictDefault) {
+                            ConflictDefault.ASK -> R.string.settings_conflict_ask
+                            ConflictDefault.SKIP -> R.string.settings_conflict_skip
+                            ConflictDefault.KEEP_BOTH -> R.string.settings_conflict_keep_both
+                        },
+                    ),
+                ) {
                     Text(
                         text = stringResource(R.string.settings_sub_scanning),
                         style = MaterialTheme.typography.titleSmall,
@@ -943,7 +1039,13 @@ fun SettingsScreen(
 
             // 7. About
             item {
-                SettingsSection(title = stringResource(R.string.settings_about)) {
+                SettingsSection(
+                    title = stringResource(R.string.settings_about),
+                    summary = stringResource(
+                        R.string.settings_about_version,
+                        BuildConfig.VERSION_NAME,
+                    ),
+                ) {
                     Text(
                         text = AppInfo.APP_NAME,
                         style = MaterialTheme.typography.titleLarge,

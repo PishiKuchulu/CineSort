@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cinesort.app.R
 import com.cinesort.app.feature.home.formatRunDate
+import com.cinesort.app.feature.home.formatRunTime
 import com.cinesort.core.designsystem.component.EmptyState
 import com.cinesort.core.designsystem.component.LoadingState
 import com.cinesort.core.designsystem.component.StatusChip
@@ -56,6 +57,7 @@ import com.cinesort.core.designsystem.component.toPersianDigits
 fun HistoryScreen(
     onOpenRun: (String) -> Unit = {},
     onStartScan: () -> Unit = {},
+    onCompleteSetup: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -93,6 +95,9 @@ fun HistoryScreen(
                     .padding(padding),
             )
         } else if (state.runs.isEmpty()) {
+            // The empty-state action follows canScan (UI/UX wave
+            // 1.1.0): never an active "Start a scan" when scanning is
+            // impossible — the button routes to setup instead.
             EmptyState(
                 icon = Icons.Filled.History,
                 title = stringResource(R.string.history_empty_title),
@@ -100,8 +105,14 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                actionLabel = stringResource(R.string.history_start_scan),
-                onAction = onStartScan,
+                actionLabel = stringResource(
+                    if (state.canScan) {
+                        R.string.history_start_scan
+                    } else {
+                        R.string.history_complete_setup
+                    },
+                ),
+                onAction = if (state.canScan) onStartScan else onCompleteSetup,
             )
         } else {
             LazyColumn(
@@ -179,13 +190,23 @@ private fun HistoryRunCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = formatRunDate(run.startedAt, jalaliDates, persianDigits),
+                    text = formatRunDate(run.startedAt, jalaliDates, persianDigits) +
+                        " · " + formatRunTime(run.startedAt, persianDigits),
                     style = MaterialTheme.typography.titleMedium,
                 )
-                StatusChip(
-                    label = stringResource(statusRes),
-                    tone = statusTone,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (run.finishedAt == null && !run.undone) {
+                        // A running run shows live progress (UI/UX wave).
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    }
+                    StatusChip(
+                        label = stringResource(statusRes),
+                        tone = statusTone,
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(

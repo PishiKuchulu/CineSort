@@ -174,6 +174,7 @@ fun CineSortNavHost(
                     onScanClick = { navController.navigate(Routes.SCAN) },
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onCompleteSetup = { navController.navigate(Routes.ONBOARDING) },
                 )
             }
             composable(Routes.SOURCES) {
@@ -183,6 +184,7 @@ fun CineSortNavHost(
                 HistoryScreen(
                     onOpenRun = { runId -> navController.navigate(Routes.report(runId)) },
                     onStartScan = { navController.navigate(Routes.SCAN) },
+                    onCompleteSetup = { navController.navigate(Routes.ONBOARDING) },
                 )
             }
             composable(Routes.SETTINGS) {
